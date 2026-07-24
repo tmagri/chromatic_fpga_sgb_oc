@@ -875,12 +875,18 @@ EmulateDMG:
     add b
     ld b, a
     ldh a, [InputPalette]
+    cp 10 ; Left + B
+    jr z, .leftAndB
     and a
     jr z, .nothingDown
     call GetKeyComboPalette
     jr .paletteFromKeys
-.nothingDown
+.leftAndB
     ld a, b
+    jr .paletteFromKeys
+.nothingDown
+    ld a, 10
+    call GetKeyComboPalette
 .paletteFromKeys
     call WaitFrame
     call LoadPalettesFromIndex
