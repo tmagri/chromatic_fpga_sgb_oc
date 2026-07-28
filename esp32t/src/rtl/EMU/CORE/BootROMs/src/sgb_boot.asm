@@ -20,11 +20,6 @@
 ;OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 ;SOFTWARE.
 
-; Modified for Chromatic FPGA:
-; - Added fast boot support (checks rBANK/FF50 bit 1) to skip logo animation
-;   while preserving SGB packet transmission (required for SGB mode activation).
-; - Fixed rgbasm v1.0+ syntax (ldh [c],a instead of ld [c],a)
-
 INCLUDE	"hardware.inc"
 
 SECTION "BootCode", ROM0[$0]
@@ -53,12 +48,6 @@ Start:
 ; Init BG palette to white
     ld a, $0
     ldh [rBGP], a
-
-; Fast boot check — skip logo animation if enabled
-; rBANK ($FF50) special register: {6'b0, fast_boot_en, boot_gba_en}
-    ldh a, [rBANK]
-    bit 1, a
-    jr nz, .fastBoot
 
 ; Load logo from ROM.
 ; A nibble represents a 4-pixels line, 2 bytes represent a 4x4 tile, scaled to 8x8.
@@ -102,7 +91,6 @@ Start:
     jr .tilemapLoop
 .tilemapDone
 
-.fastBoot
     ; Turn on LCD
     ld a, $91
     ldh [rLCDC], a
@@ -110,67 +98,67 @@ Start:
     ld a, $f1 ; Packet magic, increases by 2 for every packet
     ldh [_HRAM], a
     ld hl, $104 ; Header start
-
+    
     xor a
     ld c, a ; JOYP
 
 .sendCommand
     xor a
-    ldh [c], a
+    ld [c], a
     ld a, $30
-    ldh [c], a
-
+    ld [c], a
+    
     ldh a, [_HRAM]
     call SendByte
     push hl
     ld b, $e
     ld d, 0
-
+    
 .checksumLoop
     call ReadHeaderByte
     add d
     ld d, a
     dec b
     jr nz, .checksumLoop
-
+    
     ; Send checksum
     call SendByte
     pop hl
-
+    
     ld b, $e
 .sendLoop
     call ReadHeaderByte
     call SendByte
     dec b
     jr nz, .sendLoop
-
+    
     ; Done bit
     ld a, $20
-    ldh [c], a
+    ld [c], a
     ld a, $30
-    ldh [c], a
-
+    ld [c], a
+    
     ; Update command
     ldh a, [_HRAM]
     add 2
     ldh [_HRAM], a
-
+    
     ld a, $58
     cp l
     jr nz, .sendCommand
-
+    
     ; Write to sound registers for DMG compatibility
     ld c, $13
     ld a, $c1
-    ldh [c], a
+    ld [c], a
     inc c
     ld a, 7
-    ldh [c], a
-
+    ld [c], a
+    
     ; Init BG palette
     ld a, $fc
     ldh [rBGP], a
-
+    
 ; Set registers to match the original SGB boot
 IF DEF(SGB2)
     ld a, $FF
@@ -178,7 +166,7 @@ ELSE
     ld a, 1
 ENDC
     ld hl, $c060
-
+    
 ; Boot the game
     jp BootGame
 
@@ -202,9 +190,9 @@ SendByte:
     jr c, .zeroBit
     add a ; 10 -> 20
 .zeroBit
-    ldh [c], a
+    ld [c], a
     ld a, $30
-    ldh [c], a
+    ld [c], a
     dec d
     ret z
     jr .loop

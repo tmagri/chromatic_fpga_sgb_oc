@@ -137,19 +137,17 @@ module emu_system_top
 
     reg [3:0] joy_din;
     wire [1:0] joy_p54;
-    wire [3:0] sgb_joy_do;
+    // Non-SGB joypad decode. When an SGB game is active the SGB multitap,
+    // merged into gb.v, overrides this internally (joy_nibble), so joy_din
+    // is simply ignored by the core in that case.
     always@(posedge hclk)
     begin
-        if (sgb_game_detected) begin
-            joy_din <= sgb_joy_do;
-        end else begin
-            case(joy_p54)
-                2'b00: joy_din <= (~btn_key) & (~dpad_key); 
-                2'b01: joy_din <= ~dpad_key;
-                2'b10: joy_din <= ~btn_key; 
-                2'b11: joy_din <= 4'hF;
-            endcase
-        end
+        case(joy_p54)
+            2'b00: joy_din <= (~btn_key) & (~dpad_key);
+            2'b01: joy_din <= ~dpad_key;
+            2'b10: joy_din <= ~btn_key;
+            2'b11: joy_din <= 4'hF;
+        endcase
     end
 
     wire wr;
@@ -212,7 +210,7 @@ module emu_system_top
         begin
             CART_RST_r1 <= CART_RST;
             CART_RST_r2 <= CART_RST_r1;
-            gbreset_ungated <= ~LCD_INIT_DONE ? 1'b1 : (~CART_RST_r2 | sgb_reboot_req);
+            gbreset_ungated <= ~LCD_INIT_DONE ? 1'b1 : ~CART_RST_r2;
             if(~ce_2x_r1 & ce_2x & ce)
                 gbreset <= gbreset_ungated;
                 
@@ -223,51 +221,30 @@ module emu_system_top
     end
 
     // ----------------------------------------------------------------
-    // SGB double-boot: first boot in GBC mode snoops the cart header.
-    // If an SGB game is detected, trigger a reboot in DMG mode so the
-    // game sends SGB palette commands (games only do this when they
-    // believe they are running on original DMG hardware, A=$01).
+    // Native SGB detection: snoop the cart header during the single
+    // CGB-mode boot and statically latch whether this is an SGB game.
+    // There is NO reboot and NO runtime isGBC toggling -- the universal
+    // boot ROM switches DMG/SGB games into DMG mode via FF4C (KEY0) and
+    // pushes the SGB packet sequence itself (leaving A=$01), so the game
+    // emits SGB commands in a single pass. The core only needs a static
+    // enable for the SGB palette/multitap engine now merged into gb.v.
+    //
+    // sgb_detected deliberately PERSISTS across gbreset (it is cleared only
+    // on cart removal): a save-state resume of an SGB game does not assert
+    // gbreset, so the flag must stay set or the game would resume in SGB mode
+    // with the engine disabled (isSGB=0) and hang. While latched for a non-SGB
+    // cart the engine is simply idle (no SGB packets -> overlay inactive) and
+    // the joypad still uses the normal decode, so persistence is harmless.
     // ----------------------------------------------------------------
-    reg        sgb_dmg_boot;      // latched: 1 = boot in DMG mode
-    reg        sgb_game_detected; // latched: 1 = SGB game (for palette/joy)
-    reg        sgb_reboot_req;    // asserted to trigger SGB reboot reset
-    reg [15:0] sgb_reboot_timer;  // holds reset for ~1.5 ms
+    reg sgb_detected;   // latched: 1 = SGB game (enables SGB palette/multitap)
 
     always @(posedge hclk or negedge reset_n) begin
-        if (~reset_n) begin
-            sgb_dmg_boot   <= 1'b0;
-            sgb_game_detected <= 1'b0;
-            sgb_reboot_req <= 1'b0;
-            sgb_reboot_timer <= 16'd0;
-        end else begin
-            // Cart removed/inserted (CART_RST low) → clear for fresh detection
-            if (~CART_RST_r2) begin
-                sgb_dmg_boot     <= 1'b0;
-                sgb_game_detected <= 1'b0;
-                sgb_reboot_req   <= 1'b0;
-                sgb_reboot_timer <= 16'd0;
-            end else begin
-                // Only SGB games reboot to DMG mode (for SGB palette support).
-                // Non-SGB DMG games stay in GBC mode (GBC compat palette).
-                if (isSGB_game && !isGBC_game && !sgb_dmg_boot && !sgb_reboot_req && (sgb_reboot_timer == 0)) begin
-                    sgb_reboot_req   <= 1'b1;
-                    sgb_reboot_timer <= 16'd50000;
-                    sgb_game_detected <= isSGB_game;
-                end
-
-                // Latch DMG mode only once gbreset is confirmed active
-                if (sgb_reboot_req && gbreset && !sgb_dmg_boot) begin
-                    sgb_dmg_boot <= 1'b1;
-                end
-
-                // Countdown and release reset
-                if (sgb_reboot_timer != 0) begin
-                    sgb_reboot_timer <= sgb_reboot_timer - 1'b1;
-                    if (sgb_reboot_timer == 16'd1)
-                        sgb_reboot_req <= 1'b0;
-                end
-            end
-        end
+        if (~reset_n)
+            sgb_detected <= 1'b0;
+        else if (~CART_RST_r2)
+            sgb_detected <= 1'b0;              // cart removed -> re-detect next boot
+        else if (isSGB_game && !isGBC_game)
+            sgb_detected <= 1'b1;              // latch once the header is snooped
     end
 
     wire DMA_on;
@@ -391,11 +368,11 @@ module emu_system_top
     wire isGBC_game = hdr_cgb_captured ?
         (cart_cgb_flag == 8'h80 || cart_cgb_flag == 8'hC0) : 1'b1; // default GBC until detected
     // isSGB_game: cart has SGB enhancements (SGB flag=0x03 AND licensee=0x33).
-    // After the SGB double-boot, the DMG boot ROM doesn't re-read the header,
-    // so sgb_dmg_boot preserves the detection from the first (GBC) boot.
+    // Detected once during the single CGB-mode boot (the universal boot ROM
+    // reads these header bytes) and statically latched into sgb_detected.
     wire isSGB_game = hdr_sgb_captured && hdr_lic_captured &&
                       (cart_sgb_flag == 8'h03) && (cart_old_lic == 8'h33);
-    assign isSGB_out = sgb_game_detected;
+    assign isSGB_out = sgb_detected;
 
     gb u_gb(
         .reset(gbreset),
@@ -407,8 +384,9 @@ module emu_system_top
         .ce_4x(ce_4x),
         .oc_lvl(oc_lvl),
 
-        .isGBC(sgb_dmg_boot ? 1'b0 : 1'b1),
-        .isSGB(sgb_game_detected), //isSGB_game //sgb_game_detected
+        .isGBC(1'b1),                    // constant: CGB hardware; DMG/SGB mode set via FF4C KEY0
+        .isSGB(sgb_detected),            // native SGB engine enable (static, from header snoop)
+        .isGBC_game(isGBC_game & ~sgb_detected),
         .real_cgb_boot(1'd0),
         .customPaletteEna(customPaletteEna),
         .paletteBGIn(paletteBGIn),
@@ -448,7 +426,7 @@ module emu_system_top
 
         .boot_gba_en(1'd0),
         .fast_boot_en(1'd1),
-        .skip_boot_rom(1'd0),  // reserved: cannot skip SGB boot ROM (packet TX required)
+        .skip_boot_rom(1'd0),  // reserved (tied 0): universal boot ROM must run (SGB packet TX + mode setup)
         // audio
         .audio_l(snd_l),
         .audio_r(snd_r),
@@ -547,64 +525,13 @@ module emu_system_top
     wire [1:0]  gb_sgb_lcd_mode;
     wire        gb_sgb_lcd_on;
 
-    // SGB joystick input word (format: Start,Sel,B,A,Right,Left,Up,Down)
-    wire [7:0] joystick_0_w = {
-        BTN_START_filtered, BTN_SEL_filtered,
-        BTN_B_filtered, BTN_A_filtered,
-        BTN_DPAD_RIGHT_filtered_dir, BTN_DPAD_LEFT_filtered_dir,
-        BTN_DPAD_UP_filtered_dir, BTN_DPAD_DOWN_filtered_dir
-    };
-
-    wire [14:0] sgb_pal_out_w;
-    wire        sgb_pal_en_w;
-    wire [14:0] sgb_lcd_data_w;
-    wire        sgb_lcd_clkena_w;
-    wire [1:0]  sgb_lcd_mode_w;
-    wire        sgb_lcd_on_w;
-    wire        sgb_lcd_vsync_w;
-
-    sgb u_sgb (
-        .reset          (gbreset),
-        .clk_sys        (hclk),
-        .ce             (ce),
-        .sgb_en         (sgb_game_detected),
-        .tint           (1'b0),
-        .isGBC_game     (sgb_game_detected ? 1'b0 : isGBC_game),
-        // LCD state for the SGB frame scanner must come from the
-        // main-video taps: videoBypass free-runs while the game's LCD
-        // is off (phantom vblanks + zeroed lcd_data_gb) and would
-        // corrupt PAL_TRN/ATTR_TRN captures (Pokemon/DK94 black boot).
-        .lcd_clkena     (gb_sgb_lcd_clkena),
-        .lcd_data       (gb_raw_lcd_data),
-        .lcd_data_gb    (gb_sgb_lcd_data_gb),
-        .lcd_pix_x      (gb_raw_lcd_pix_x),
-        .lcd_pix_y      (gb_raw_lcd_pix_y),
-        .lcd_mode       (gb_sgb_lcd_mode),
-        .lcd_on         (gb_sgb_lcd_on),
-        .lcd_vsync      (gb_raw_lcd_vsync),
-        .joystick_0     (joystick_0_w),
-        .joystick_1     (8'b0),
-        .joystick_2     (8'b0),
-        .joystick_3     (8'b0),
-        .joy_p54        (joy_p54),
-        .joy_do         (sgb_joy_do),
-        .sgb_pal_out    (sgb_pal_out_w),
-        .pal_read_idx   (gb_raw_lcd_data_gb),
-        .sgb_pal_en     (sgb_pal_en_w),
-        .sgb_lcd_clkena (sgb_lcd_clkena_w),
-        .sgb_lcd_mode   (sgb_lcd_mode_w),
-        .sgb_lcd_on     (sgb_lcd_on_w),
-        .sgb_lcd_freeze (),
-        .sgb_lcd_vsync  (sgb_lcd_vsync_w)
-    );
-
-    // Direct video path with optional SGB palette overlay.
-    // Control signals are always direct (no SGB pipeline delay).
-    // Data is replaced with SGB palette color when palette is active.
-    wire use_sgb_pal = sgb_game_detected & sgb_pal_en_w;
+    // The SGB palette/multitap engine is now merged into gb.v (u_gb). It
+    // applies the SGB palette overlay to gb.v's lcd_data output internally,
+    // gated by the static isSGB enable, so there is no external SGB module,
+    // no overlay mux here, and no per-frame SGB pipeline delay to match.
 
     // Hold the LCD *pixels* black from power-on until the game's first real
-    // picture, so the boot ROM frame, the SGB dual-boot's leftover white, AND
+    // picture, so the boot ROM frame, any SGB init leftover white, AND
     // any solid-colour init screen all stay hidden -- e.g. Pokemon's Init turns
     // the LCD on to a cleared-VRAM white screen (BGP=0) before LoadSGB and the
     // intro, and a blank-counter heuristic wakes on that white, producing
@@ -618,8 +545,8 @@ module emu_system_top
     // for the rare game whose first screen is a single solid colour. A new boot
     // (boot_rom_enabled rising = power-on or cart change) re-arms; there is NO
     // memrst reset, so a cart-detect/PLL glitch during play cannot disturb the
-    // picture. SGB packet capture is unaffected -- sgb.v reads the un-overridden
-    // gb_raw / SGB taps, not gb_lcd_data.
+    // picture. SGB packet capture is unaffected -- the SGB engine (merged into
+    // gb.v) reads the un-overridden gb_raw / SGB taps, not gb_lcd_data.
     reg        boot_done;
     reg        prev_boot_rom_enabled;
     reg [14:0] frame_ref;
@@ -632,7 +559,7 @@ module emu_system_top
         gb_vsync_d            <= gb_raw_lcd_vsync;
         prev_boot_rom_enabled <= boot_rom_enabled;
         if (gbreset_ungated || gbreset || (~prev_boot_rom_enabled && boot_rom_enabled)) begin
-            // Re-arm on any reset (power-on, cart load, soft reset, SGB reboot)
+            // Re-arm on any reset (power-on, cart load, soft reset)
             // so the reset's own video noise (e.g. the EverDrive menu->ROM load
             // showing the videoBypass fill / greenish reset garbage) is held
             // black too, not just the boot-ROM window.
@@ -670,11 +597,10 @@ module emu_system_top
     end
 
     assign gb_lcd_clkena = gb_raw_lcd_clkena;
-    // Drive black until boot_done (boot ROM frame + SGB leftover white + the
-    // game's init blank all stay hidden); SGB packet capture is unaffected --
-    // sgb.v reads the un-overridden gb_raw / SGB taps, not gb_lcd_data.
-    assign gb_lcd_data   = boot_done ? (use_sgb_pal ? sgb_pal_out_w : gb_raw_lcd_data)
-                                     : 15'h0000;
+    // Drive black until boot_done (boot ROM frame + any init blank stay hidden).
+    // gb_raw_lcd_data is gb.v's lcd_data output, which already carries the SGB
+    // palette overlay (applied inside gb.v when isSGB & sgb_pal_en).
+    assign gb_lcd_data   = boot_done ? gb_raw_lcd_data : 15'h0000;
     assign gb_lcd_mode   = gb_raw_lcd_mode;
     assign gb_lcd_on     = gb_raw_lcd_on;
     assign gb_lcd_vsync  = gb_raw_lcd_vsync;

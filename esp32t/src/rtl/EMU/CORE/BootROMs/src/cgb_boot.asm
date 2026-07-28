@@ -56,6 +56,8 @@ ENDC
     ldh [InputPalette], a
 ; Clear title checksum
     ldh [TitleChecksum], a
+; Clear SGB-detection flag (HRAM survives soft resets / cart swaps)
+    ldh [SgbFlag], a
 
 ; Init Audio
     ld a, $80
@@ -220,8 +222,9 @@ ENDC
     jr z, .cgbmode
     inc b ; AGB mode set b = 1, reset z flag
 .cgbmode
-    ld a, $11
-    jr BootGame
+    ; BootCode is space-constrained (it must end before BootGame at $00FE), so
+    ; the SGB-vs-CGB/DMG handoff decision lives in MoreStuff (BootDispatch).
+    jp BootDispatch
 
 HDMAData:
     db $D0, $00, $98, $A0, $12
@@ -926,10 +929,20 @@ GetPaletteIndex:
     ldh [TitleChecksum], a
     ld b, a
 
-    ; FPGA header snooping: read SGB flag and licensee code
-    ; so the FPGA can detect SGB games and reboot in DMG mode.
+    ; SGB detection. These reads of $0146/$014B are also snooped by the FPGA
+    ; (emu_system_top.v) to set its static SGB engine enable -- so they must
+    ; stay as real bus reads. SGB game <=> SGB flag $0146 == $03 AND old
+    ; licensee $014B == $33. GetPaletteIndex runs only for non-CGB carts
+    ; (called via EmulateDMG), which is exactly the SGB/DMG case.
     ld a, [$0146]
+    cp $03
+    jr nz, .notSGB
     ld a, [$014B]
+    cp $33
+    jr nz, .notSGB
+    ld a, 1
+    ldh [SgbFlag], a
+.notSGB
 
     ; c = 0
     ld hl, TitleChecksums
@@ -1215,6 +1228,123 @@ CheckAGBPalette:
     pop hl
     ret
 
+; ---------------------------------------------------------------------------
+; Boot handoff dispatch (kept out of BootCode for space). Chooses the boot-out
+; path based on the SGB detection done during Preboot/EmulateDMG.
+; ---------------------------------------------------------------------------
+BootDispatch:
+    ldh a, [SgbFlag]
+    and a
+    jp nz, SGBBoot      ; SGB game: push packet sequence, hand off with A=$01
+    ld a, $11
+    jp BootGame          ; CGB / plain-DMG game: hand off with A=$11
+
+; ---------------------------------------------------------------------------
+; SGB native boot-out (single pass, no reboot).
+; Reached from .cgbmode when SgbFlag is set (cart is an SGB game). By now the
+; CPU has already been put into DMG mode via FF4C/KEY0 by EmulateDMG, and the
+; DMG-emulation palettes are loaded. Here we:
+;   1. push the SGB packet sequence (transfers the cart header/logo to the SGB,
+;      the same handshake the original SGB boot ROM performs),
+;   2. set the DMG-compat audio registers and BGP,
+;   3. unmap the boot ROM -- the core is isGBC=1, so FF50 must be written with
+;      $11 (gb.v: (isGBC && $11) || (!isGBC && bit0)) -- then
+;   4. hand off to the game at $0100 with A=$01 (SGB identity) and HL=$C060,
+;      matching the original SGB boot. The game then emits its SGB palette
+;      commands, which the SGB engine merged into gb.v colourises.
+; ---------------------------------------------------------------------------
+SGBBoot:
+    ld a, $f1           ; packet magic, increases by 2 per packet
+    ldh [SgbPacketMagic], a
+    ld hl, $104         ; cart header / logo start
+    xor a
+    ld c, a             ; c = JOYP ($FF00)
+.sgbSendCommand
+    xor a
+    ldh [c], a
+    ld a, $30
+    ldh [c], a
+    ldh a, [SgbPacketMagic]
+    call SGBSendByte
+    push hl
+    ld b, $e
+    ld d, 0
+.sgbChecksumLoop
+    call SGBReadHeaderByte
+    add d
+    ld d, a
+    dec b
+    jr nz, .sgbChecksumLoop
+    ; Send checksum
+    call SGBSendByte
+    pop hl
+    ld b, $e
+.sgbSendLoop
+    call SGBReadHeaderByte
+    call SGBSendByte
+    dec b
+    jr nz, .sgbSendLoop
+    ; Done bit
+    ld a, $20
+    ldh [c], a
+    ld a, $30
+    ldh [c], a
+    ; Advance to the next packet command
+    ldh a, [SgbPacketMagic]
+    add 2
+    ldh [SgbPacketMagic], a
+    ld a, $58
+    cp l
+    jr nz, .sgbSendCommand
+    ; DMG-compat sound registers
+    ld c, $13
+    ld a, $c1
+    ldh [c], a
+    inc c
+    ld a, 7
+    ldh [c], a
+    ; BG palette
+    ld a, $fc
+    ldh [rBGP], a
+    ; Set registers to match the original SGB boot, then unmap via BootGame.
+    ; A=$01 both tells the game it is on an SGB AND unmaps the boot ROM: gb.v
+    ; unmaps on FF50 bit0 when isSGB (the core is isGBC=1, which otherwise
+    ; needs $11). BootGame ($00FE) writes A to FF50 and falls through to the
+    ; game at $0100, so the unmap is the FINAL boot-ROM instruction -- no
+    ; boot-ROM code is fetched after the region is unmapped. (An inline
+    ; write-then-continue here would execute cartridge garbage, freezing on a
+    ; white screen.)
+    ld a, $01
+    ld hl, $c060
+    jp BootGame
+
+SGBReadHeaderByte:
+    ld a, $4F
+    cp l
+    jr c, .zero
+    ld a, [hli]
+    ret
+.zero
+    inc hl
+    xor a
+    ret
+
+SGBSendByte:
+    ld e, a
+    ld d, 8
+.loop
+    ld a, $10
+    rr e
+    jr c, .zeroBit
+    add a               ; $10 -> $20
+.zeroBit
+    ldh [c], a
+    ld a, $30
+    ldh [c], a
+    dec d
+    ret z
+    jr .loop
+
 BootEnd:
 IF BootEnd > $900
     FAIL "BootROM overflowed: {BootEnd}"
@@ -1228,4 +1358,11 @@ BgPalettes:
 InputPalette:
     ds 1
 WaitLoopCounter:
+    ds 1
+; SGB native boot: set when the cart is an SGB game (flag $0146=$03 AND licensee
+; $014B=$33). HRAM is not cleared by the core's reset, so SgbFlag is zeroed at
+; the start of every boot to avoid a stale detection surviving a cart swap.
+SgbFlag:
+    ds 1
+SgbPacketMagic:
     ds 1

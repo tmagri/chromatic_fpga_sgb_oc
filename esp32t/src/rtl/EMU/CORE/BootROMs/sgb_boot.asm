@@ -20,6 +20,16 @@
 ;OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 ;SOFTWARE.
 
+; ===========================================================================
+; DEPRECATED -- no longer built.
+; SGB support is now native: the universal cgb_boot.asm detects SGB games from
+; the cartridge header, pushes this same SGB packet sequence (see SGBBoot in
+; cgb_boot.asm), and hands off with A=$01 in a single pass. The SGB palette /
+; multitap engine is merged into gb.v. This standalone SGB boot ROM (and the
+; SGB double-boot reset it required) has been removed from the Makefile.
+; Kept only for historical reference.
+; ===========================================================================
+
 ; Modified for Chromatic FPGA:
 ; - Added fast boot support (checks rBANK/FF50 bit 1) to skip logo animation
 ;   while preserving SGB packet transmission (required for SGB mode activation).

@@ -69,7 +69,6 @@ prepare:
 	cp -R ../../../../Gameboy_MiSTer/BootROMs/src/ $(SRC)
 	cp -f ../../../../Gameboy_MiSTer/BootROMs/CGB_logo.png CGB_logo.png
 	cp -f cgb_boot.asm $(SRC)/cgb_boot.asm
-	cp -f sgb_boot.asm $(SRC)/sgb_boot.asm
 
 .PHONY : mif
 mif:
@@ -77,17 +76,14 @@ mif:
 	$(BIN)/cgb_boot.bin -Binary \
 	-Output_Block_Size 16 -o cgb_boot.mif -mif -CRLF
 
-# Build SGB boot ROM binary (256 bytes)
-$(BIN)/sgb_boot.bin: $(SRC)/sgb_boot.asm
-	-@$(MKDIR) -p $(dir $@)
-	rgbasm -i $(OBJ) -i $(SRC) -o $@.tmp $<
-	rgblink -o $@.tmp2 $@.tmp
-	dd if=$@.tmp2 of=$@ count=1 bs=256 2> $(NULL)
-	@rm $@.tmp $@.tmp2
+# The universal cgb_boot.asm detects CGB/DMG/SGB from the cartridge header and
+# boots natively in a single pass, so the standalone SGB boot ROM is deprecated
+# and no longer built (its packet sequence now lives in cgb_boot.asm).
 
-# Memory layout: CGB=$000-$8FF, DMG=$900-$9FF, SGB=$A00-$AFF
+# Memory layout: the universal boot ROM occupies $000-$8FF (2304 bytes). The
+# old DMG/SGB boot regions ($900+) are unused now that everything is served
+# from the CGB region (the core runs with isGBC=1 and switches mode via FF4C).
 .PHONY : vmem
-vmem: $(BIN)/cgb_boot.bin $(BIN)/sgb_boot.bin
+vmem: $(BIN)/cgb_boot.bin
 	hexdump -v -e '1/1 "%02X\n"' $(BIN)/cgb_boot.bin > cgb_boot.mif.vmem
-	hexdump -v -e '1/1 "%02X\n"' $(BIN)/sgb_boot.bin >> cgb_boot.mif.vmem
 
