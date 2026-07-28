@@ -1,3 +1,4 @@
+
 module audio_filter
 (
 	input        reset,
@@ -10,9 +11,42 @@ module audio_filter
 	output [15:0] filter_r
 );
 
-// Capture stable input (same as original)
-reg [15:0] cl, cr;
-reg [15:0] cl1, cl2, cr1, cr2;
+localparam CLK_RATE = 16777000; // hclk
+
+reg [31:0] flt_rate = 7056000;
+reg [39:0] cx  = 4258969;
+reg  [7:0] cx0 = 3;
+reg  [7:0] cx1 = 3;
+reg  [7:0] cx2 = 1;
+reg [23:0] cy0 = 24'hA123C9;
+reg [23:0] cy1 = 24'h5DBD9A;
+reg [23:0] cy2 = 24'hE11EA9;
+
+reg sample_ce;
+reg [7:0] div = 0;
+always @(posedge clk) begin
+	div <= div + 1'd1;
+	if(!div) begin
+		div <= 2'd1;
+	end
+
+	sample_ce <= !div;
+end
+
+reg flt_ce;
+reg [31:0] cnt = 0;
+always @(posedge clk) begin
+	flt_ce = 0;
+	cnt = cnt + {flt_rate[30:0],1'b0};
+	if(cnt >= CLK_RATE) begin
+		cnt = cnt - CLK_RATE;
+		flt_ce = 1;
+	end
+end
+
+reg [15:0] cl,cr;
+reg [15:0] cl1,cl2;
+reg [15:0] cr1,cr2;
 always @(posedge clk) begin
 	cl1 <= core_l; cl2 <= cl1;
 	if(cl2 == cl1) cl <= cl2;
@@ -21,72 +55,59 @@ always @(posedge clk) begin
 	if(cr2 == cr1) cr <= cr2;
 end
 
-// Output sample rate ≈ 65.5 kHz (CLK_RATE / 256)
-reg sample_ce;
-reg [7:0] div = 0;
-always @(posedge clk) begin
-	div <= div + 1'd1;
-	if(!div) div <= 2'd1;
-	sample_ce <= !div;
-end
+reg a_en1 = 0, a_en2 = 0;
+reg  [1:0] dly1 = 0;
+reg [14:0] dly2 = 0;
+always @(posedge clk, posedge reset) begin
+	if(reset) begin
+		dly1 <= 0;
+		dly2 <= 0;
+		a_en1 <= 0;
+		a_en2 <= 0;
+	end
+	else begin
+		if(flt_ce) begin
+			if(~&dly1) dly1 <= dly1 + 1'd1;
+			else a_en1 <= 1;
+		end
 
-// Startup mute (~125 ms)
-reg [14:0] dly = 0;
-reg a_en = 0;
-always @(posedge clk or posedge reset) begin
-	if (reset) begin
-		dly  <= 0;
-		a_en <= 0;
-	end else if (sample_ce) begin
-		if (!dly[13]) dly <= dly + 1'd1;
-		else a_en <= 1;
+		if(sample_ce) begin
+			if(!dly2[13]) dly2 <= dly2 + 1'd1;
+			else a_en2 <= 1;
+		end
 	end
 end
 
-// ----------------------------------------------------------------
-// 2-stage cascaded 1-pole IIR low-pass running at full clock rate
-// to perform anti-aliasing before downsampling.
-// fc = fs * (1/256) / (2 * pi) = 16.777M / 1608 = ~10.4 kHz per pole
-// Cascaded -3dB point: ~6.7 kHz
-// ----------------------------------------------------------------
+wire [15:0] acl, acr;
+IIR_filter #(.use_params(0)) IIR_filter
+(
+	.clk(clk),
+	.reset(reset),
 
-wire signed [31:0] cl_ext = {cl, 16'd0};
-wire signed [31:0] cr_ext = {cr, 16'd0};
+	.ce(flt_ce & a_en1),
+	.sample_ce(sample_ce),
 
-reg signed [31:0] lp1_l, lp2_l;
-reg signed [31:0] lp1_r, lp2_r;
+	.cx(cx),
+	.cx0(cx0),
+	.cx1(cx1),
+	.cx2(cx2),
+	.cy0(cy0),
+	.cy1(cy1),
+	.cy2(cy2),
 
-always @(posedge clk) begin
-	if (reset) begin
-		lp1_l <= 0; lp2_l <= 0;
-		lp1_r <= 0; lp2_r <= 0;
-	end else begin
-		lp1_l <= lp1_l + ((cl_ext - lp1_l) >>> 8);
-		lp1_r <= lp1_r + ((cr_ext - lp1_r) >>> 8);
-		lp2_l <= lp2_l + ((lp1_l - lp2_l) >>> 8);
-		lp2_r <= lp2_r + ((lp1_r - lp2_r) >>> 8);
-	end
-end
-
-// Downsample and apply fractional scaling (0.625x) to match
-// the overall gain profile of the original IIR filter (which was ~0.61x).
-wire signed [15:0] ds_l = lp2_l[31:16];
-wire signed [15:0] ds_r = lp2_r[31:16];
-
-wire signed [15:0] scaled_l = (ds_l >>> 1) + (ds_l >>> 3);
-wire signed [15:0] scaled_r = (ds_r >>> 1) + (ds_r >>> 3);
-
-// ----------------------------------------------------------------
-// Original high-precision DC Blocker module (0 DSPs)
-// ----------------------------------------------------------------
+	.input_l(cl),
+	.input_r(cr),
+	.output_l(acl),
+	.output_r(acr)
+);
 
 DC_blocker dcb_l
 (
 	.clk(clk),
 	.ce(sample_ce),
-	.sample_rate(1'b0),
-	.mute(~a_en),
-	.din(scaled_l),
+	.sample_rate(0),
+	.mute(~a_en2),
+	.din(acl),
 	.dout(filter_l)
 );
 
@@ -94,9 +115,9 @@ DC_blocker dcb_r
 (
 	.clk(clk),
 	.ce(sample_ce),
-	.sample_rate(1'b0),
-	.mute(~a_en),
-	.din(scaled_r),
+	.sample_rate(0),
+	.mute(~a_en2),
+	.din(acr),
 	.dout(filter_r)
 );
 

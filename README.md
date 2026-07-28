@@ -8,7 +8,6 @@ For more information about the ModRetro Chromatic, please see visit [ModRetro.co
 
 - **Super Gameboy & Overclocking**: This revised core adds support for Super Gameboy and Overclocking features!
 - **Feature Freeze**: The FPGA chip is currently at 97% utilization (routing and logic bound), meaning adding new features is no longer feasible. Moving forward, only bug fixes will be checked and merged.
-- **Revised Audio Filter**: To make room for the SGB core, the original 3-tap IIR filter was replaced with a lightweight DSP-free filter. While this new filter properly levels the audio and prevents aliasing, its only deficiency is a less steep frequency roll-off (12 dB/oct) compared to the original DSP-based filter.
 - **Overclock Warning**: Consider Overclock mode to always be unstable, especially at 4x speed. **Do NOT use 4x mode while in the EverDrive menu**, or games will fail to boot. It is strongly advised to only enable 4x mode once you are already actively running a game.
 
 ## ⚠️ CAUTION: Overclock Mode
