@@ -1,3 +1,8 @@
+## Unreleased
+
+### Fixed
+- EverDrive carts no longer hang on a white screen at boot when a 2x or 4x CPU overclock is enabled: the core now forces a 1x clock during the boot and cartridge-loading sequence. The overclock engages when the loaded software actually starts executing (first instruction fetch at $0100); for detected flashcarts (EverDrive X-series and original series, by ROM header title) 1x is held until the cart's OS boots a game, so its SD I/O and menu never run overclocked
+
 ## v18.8
 
 ### Changed

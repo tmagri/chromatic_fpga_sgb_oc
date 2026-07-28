@@ -27,11 +27,13 @@ module gb (
     input ce_n,
     input ce_2x,
     input ce_4x,
-    input [1:0] oc_lvl,   // 0=1x  1=2x  2=4x
+    input [1:0] oc_lvl,   // 0=1x  1=2x  2=4x (clamped to 1x during safe-boot)
 
     input isGBC,
     input isSGB,        // native SGB enable: cart is an SGB game (static, from header detect)
     input isGBC_game,   // cart uses CGB features (SGB palette is bypassed when set; 0 for SGB games)
+    input flashcart_det,// cart header matches a flashcart OS (e.g. EverDrive "GBXOS"/"GBOS"):
+                        // hold 1x until the OS actually boots a game (see safe-boot below)
     input real_cgb_boot,
     input paletteOff,
     input customPaletteEna,
@@ -371,8 +373,10 @@ wire cpu_iorq_n;
 wire cpu_m1_n;
 wire cpu_mreq_n;
 
-// Clean, glitch-free clock enable. 
-// DMA and BootROM always run at 1x. Overclock is applied cleanly otherwise.
+// Clean, glitch-free clock enable.
+// DMA and BootROM always run at 1x. Overclock is applied cleanly otherwise,
+// except during safe-boot (see below), which clamps the whole boot-and-load
+// window to 1x before the user's overclock is ever applied.
 // Detect CPU cart-bound machine cycles early, at T1, using the address
 // bus (which is stable from T1 onwards). This gives us a perfectly
 // registered flag to drop ce_cpu to native speed for the entire cycle.
@@ -386,6 +390,186 @@ end
 // Force native speed for DMA, BootROM, and physical cartridge accesses
 wire force_native = dma_rd || hdma_active || boot_rom_enabled || cart_access_pending;
 
+// --------------------------------------------------------------------
+// --------------------- Safe-boot clock override ---------------------
+// --------------------------------------------------------------------
+
+// Flashcarts such as the EverDrive run their own OS from the cartridge
+// once the boot ROM hands off. That OS initialises itself and bit-bangs
+// SD card I/O with strictly timing-dependent loops: the core's timer
+// scales with the overclock (it is clocked by ce_cpu), so at 2x/4x the
+// OS's delay/timeout loops expire in a fraction of their real duration
+// while the SD card still answers in real time -- the OS fails its
+// first transactions and hangs. Clamp the overclock off until control
+// is genuinely handed to the loaded software instead:
+//
+//   - while the boot ROM is mapped (boot_rom_enabled), and then
+//   - until the CPU fetches its first instruction at $0100 -- the
+//     universal Game Boy entry point (entry_m1_0100 below). Every boot
+//     path lands there: the boot ROM's final jump, and a flashcart's
+//     soft-boot of a game from its menu.
+//
+// For a normal cart that entry happens immediately after the boot ROM
+// unmaps, so the overclock engages from the game's first instructions
+// (release lands on the next quiet clock boundary, a few microseconds
+// later; SAFE_BOOT_GRACE is only a fallback in case the entry event is
+// ever missed). For a detected flashcart (flashcart_det, from
+// the header title snoop in emu_system_top) the OS's *own* $0100 entry
+// -- the FIRST entry after the boot ROM unmaps -- is ignored, and any
+// entry after that (a game the OS has loaded and launched) releases the
+// overclock. Counting entries rather than time keeps even a fast
+// auto-booted game (SD init plus a small ROM in well under a second)
+// from being mistaken for the OS's own entry and left at 1x. The OS,
+// its menu, and all SD browsing/loading therefore run at native speed
+// no matter how long the user stays there.
+//
+// Frames are counted on lcd_vsync, the module's muxed vsync output: when
+// the game's LCD is on it is the PPU vsync, and when the LCD is off the
+// videoBypass path free-runs it at the same frame rate, so the counter
+// always measures emulated frames -- even if the cartridge's OS turns
+// the LCD off to speed up loading.
+//
+// The window re-arms on reset_ss: power-on / cart change / soft reset
+// (reset_r) and savestate LOADS (reset_ss pulses for those too, but not
+// for saves -- a save only sleeps the core, so it never drops a running
+// game back to 1x). Re-arming on load is essential: a restored
+// flashcart-OS state must resume at native speed even if a later game
+// had already released the window (see the entry bookkeeping below).
+// While boot_rom_enabled is set the frame counter is held at zero.
+//
+// Release is qualified with ce (a native-speed clock-enable tick, so the
+// transition lands on a CPU T-state boundary) and ~cart_busy (physical
+// cartridge bus idle) so the cart controller's 1x/2x bus timing state
+// machines are not switched while a bus cycle's strobes are in flight.
+// (A cycle that *starts* on the release edge is harmless: its address/CS
+// strobes fire at counter<=4 in the low-speed branch before speed can
+// matter, and cart_access_pending keeps ce_cpu native for it anyway.)
+//
+// Residual caveat: a flashcart's in-game-menu "return to file list"
+// switch is invisible to the core, so the overclock stays engaged if the
+// user goes back to the cart's menu from a game; a subsequent load from
+// the menu may then fail, exactly as the readme's 4x-in-menu warning
+// describes. Power-cycling (or re-inserting the cart) re-arms safe-boot.
+localparam [7:0] SAFE_BOOT_GRACE = 8'd180;   // fallback timeout, ~3.0 s at 59.73 Hz
+
+reg        safe_boot         = 1'b1;
+reg [7:0]  safe_boot_frames  = 8'd0;
+reg        safe_boot_vsync_d = 1'b0;
+
+always @(posedge clk_sys) begin
+   if (reset_r) begin
+      safe_boot_frames  <= 8'd0;
+      safe_boot_vsync_d <= 1'b0;
+   end else begin
+      safe_boot_vsync_d <= lcd_vsync;
+      if (boot_rom_enabled)
+         safe_boot_frames <= 8'd0;      // hold until the boot ROM hands off
+      else if ((lcd_vsync & ~safe_boot_vsync_d) && safe_boot_frames != 8'd255)
+         safe_boot_frames <= safe_boot_frames + 8'd1;
+   end
+end
+
+// Universal Game Boy entry point: after the boot ROM unmaps (and after a
+// flashcart soft-boots a game) the CPU fetches its first instruction at
+// $0100. Snoop that M1 fetch to know when control has actually been
+// handed to the loaded software. cpu_m1_n/cpu_addr come straight from the
+// CPU and are stable between clock-enable ticks, so a plain level match
+// is safe at any overclock.
+wire entry_m1_0100 = !cpu_m1_n && (cpu_addr == 16'h0100);
+
+// One-shot per entry: the level above holds for the whole M1 fetch
+// (several clk_sys ticks), so edge-detect it -- the first-entry/second-
+// entry bookkeeping below must see each entry exactly once. The gap
+// counter debounces the edge: a GB interrupt taken exactly at $0100
+// runs M1-low acknowledge cycles with PC still $0100 on the bus, which
+// can split one entry into several M1 pulses a few clk_sys apart; those
+// must not count as fresh entries (a false "second" entry would release
+// the overclock onto a flashcart OS). A real, separate entry is always
+// at least a machine cycle of non-$0100 fetches away.
+reg entry_m1_d = 1'b0;
+reg [5:0] entry_gap = 6'd0;
+always @(posedge clk_sys) begin
+   entry_m1_d <= entry_m1_0100;
+   if (entry_m1_0100)
+      entry_gap <= 6'd0;
+   else if (entry_gap != 6'd63)
+      entry_gap <= entry_gap + 6'd1;
+end
+wire entry_event = entry_m1_0100 & ~entry_m1_d & ~boot_rom_enabled &
+                   (entry_gap >= 6'd16);
+
+// Flashcart entry bookkeeping: the OS's own entry is the FIRST $0100
+// fetch after the boot ROM unmaps; a game it boots later is any entry
+// after that one. (boot_rom_ran guards the hypothetical skip_boot_rom
+// path: with no boot ROM the first entry IS the loaded software and must
+// release immediately.)
+//
+// Savestate loads (reset_ss without reset_r) re-arm the window with
+// flashcart_entry_seen preset: the restored software may be the
+// flashcart OS itself (an OS-phase state must resume at 1x, not with the
+// overclock a later game release had engaged), so the NEXT $0100 entry
+// has to count as a game launch rather than be eaten as "the OS's own".
+// The unavoidable mirror case -- a mid-game state resumed on a detected
+// flashcart -- then sits at 1x until the software next passes through
+// $0100 or the cart is reseated; staying slow is the safe direction
+// (resuming an OS at overclock is the exact freeze this logic prevents).
+reg flashcart_entry_seen = 1'b0;
+reg boot_rom_ran         = 1'b0;
+always @(posedge clk_sys) begin
+   if (reset_r) begin
+      flashcart_entry_seen <= 1'b0;
+      boot_rom_ran         <= 1'b0;
+   end else if (reset_ss) begin
+      flashcart_entry_seen <= 1'b1;
+      boot_rom_ran         <= 1'b1;
+   end else begin
+      if (boot_rom_enabled)
+         boot_rom_ran <= 1'b1;
+      if (entry_event)
+         flashcart_entry_seen <= 1'b1;
+   end
+end
+
+// Latched release request; the actual release happens at the next quiet
+// boundary below. A detected flashcart ignores its OS's own (first)
+// entry so the OS initialises and does SD I/O at native speed; the
+// flashcart_entry_seen read here is the pre-entry value, so only the
+// SECOND and later entries request release. Cleared on reset_ss too, so
+// a savestate load never inherits a release from the pre-load session.
+reg oc_release_req = 1'b0;
+always @(posedge clk_sys) begin
+   if (reset_ss)
+      oc_release_req <= 1'b0;
+   else if (entry_event &&
+            (!flashcart_det || !boot_rom_ran || flashcart_entry_seen))
+      oc_release_req <= 1'b1;
+end
+
+// Fallback timeout for normal carts only (a flashcart OS must stay at 1x
+// until it actually boots a game, however long the user stays in its
+// menu -- there is deliberately no timeout release for flashcarts).
+wire safe_boot_expired = ~boot_rom_enabled && !flashcart_det &&
+                         (safe_boot_frames >= SAFE_BOOT_GRACE);
+
+always @(posedge clk_sys) begin
+   if (reset_ss || boot_rom_enabled)
+      safe_boot <= 1'b1;
+   else if (safe_boot && (oc_release_req || safe_boot_expired) && ce && ~cart_busy)
+      safe_boot <= 1'b0;
+end
+
+// Effective overclock level: the user-requested oc_lvl, clamped to 1x
+// during safe-boot. Every overclock consumer below uses this instead of
+// oc_lvl directly, so the whole machine (ce_cpu, cart 'speed' flag, bus
+// stall, audio/PCM slowdowns) behaves exactly as oc_lvl==0 until release.
+//
+// safe_boot is not part of the savestate registers; it re-arms on load
+// (reset_ss) instead. Normal carts re-release almost immediately via the
+// fallback timeout (the frame counter keeps its value, already past
+// SAFE_BOOT_GRACE); flashcarts re-release on the next game entry, or
+// stay at 1x if the restored software never passes through $0100 again.
+wire [1:0] oc_eff = safe_boot ? 2'd0 : oc_lvl;
+
 // gbc_snd runs at ce_2x. In 4x OC the CPU runs at ce_4x, so an audio
 // register access could land on a non-ce_2x tick and the audio module
 // would never see it. Detect the access at T1 (address is stable from
@@ -396,7 +580,7 @@ always @(posedge clk_sys) begin
    if (TSTATE1)
       audio_access_pending <= audio_addr_match;
 end
-wire audio_slow = (oc_lvl == 2'd2) & audio_access_pending;
+wire audio_slow = (oc_eff == 2'd2) & audio_access_pending;
 
 // Detect CPU-timed PCM playback via rapid writes to NR32 (FF1C).
 // Pokémon Yellow / Pinball bit-bang Pikachu's voice through the wave
@@ -430,14 +614,14 @@ always @(posedge clk_sys) begin
    end
 end
 
-wire pcm_active = (pcm_cnt >= 4'd4) & (oc_lvl != 2'd0);
+wire pcm_active = (pcm_cnt >= 4'd4) & (oc_eff != 2'd0);
 
 // Clean, glitch-free clock enable.
 wire ce_cpu = force_native ? (cpu_speed ? ce_2x : ce) :
               pcm_active   ? (cpu_speed ? ce_2x : ce) :
               audio_slow   ? ce_2x :
-              (oc_lvl == 2'd2) ? ce_4x :
-              (oc_lvl == 2'd1 || cpu_speed) ? ce_2x : ce;
+              (oc_eff == 2'd2) ? ce_4x :
+              (oc_eff == 2'd1 || cpu_speed) ? ce_2x : ce;
 
 // when hdma is enabled stop CPU (GBC). Finish read/write before stopping CPU
 wire hdma_cpu_stop = (isGBC & hdma_active & cpu_rd_n & cpu_wr_n);
@@ -462,9 +646,10 @@ wire hdma_cpu_stop = (isGBC & hdma_active & cpu_rd_n & cpu_wr_n);
 // so the access completes only once it is legal - matching hardware. No
 // deadlock is possible: the PPU always advances on ce independently of the
 // CPU, so mode 2/3 always ends and the block clears. LCD-off accesses are
-// unaffected (mode3/oam_eval are 0 there). Scoped to oc_lvl!=0 so the
-// validated 1x / CGB-double-speed paths stay identical to upstream.
-wire cpu_bus_blocked = (oc_lvl != 2'd0) & ~cpu_mreq_n &
+// unaffected (mode3/oam_eval are 0 there). Scoped to oc_eff!=0 (which also
+// keeps it inert during safe-boot) so the validated 1x / CGB-double-speed
+// paths stay identical to upstream.
+wire cpu_bus_blocked = (oc_eff != 2'd0) & ~cpu_mreq_n &
                        ( (sel_video_oam & ~oam_cpu_allow) |
                          (sel_vram      & ~vram_cpu_allow) );
 
@@ -574,7 +759,7 @@ end
 // based on the 'speed' flag. If we overclock the CPU to 2x or 4x, we MUST
 // tell the cart controller to use the faster GBC sample window, otherwise
 // the CPU cycle will end before cart.v even tries to latch the data!
-wire is_overclocked = (oc_lvl == 2'd1 || oc_lvl == 2'd2) && !boot_rom_enabled && !dma_rd && !hdma_active;
+wire is_overclocked = (oc_eff == 2'd1 || oc_eff == 2'd2) && !boot_rom_enabled && !dma_rd && !hdma_active;
 assign speed = cpu_speed | is_overclocked;
 
 assign SS_Top_BACK[3] = cpu_speed;

@@ -338,24 +338,37 @@ module emu_system_top
 
     // ----------------------------------------------------------------
     // ROM header detection: snoop CPU bus reads at key cart addresses
+    // 0x0134-0x0137 = title (first 4 bytes; flashcart OS identification)
     // 0x0143 = CGB flag  (0x80=GBC compat, 0xC0=GBC only)
     // 0x0146 = SGB flag  (0x03=SGB enhanced)
     // 0x014B = old licensee code (0x33=new licensee, required for SGB)
+    // The universal boot ROM (cgb_boot.asm, Preboot) explicitly reads
+    // 0x0134-0x0137 and 0x0143 on EVERY boot -- in all of CGB, DMG and
+    // SGB mode -- so those snoops always capture; the SGB/DMG palette
+    // path additionally reads 0x0146/0x014B (SGB carts boot via the DMG
+    // path, so those captures are reliable exactly where needed).
     // ----------------------------------------------------------------
     reg [7:0] cart_cgb_flag    = 8'h00;
     reg [7:0] cart_sgb_flag    = 8'h00;
     reg [7:0] cart_old_lic     = 8'h00;
+    reg [31:0] cart_title      = 32'h0;
     reg       hdr_cgb_captured = 1'b0;
     reg       hdr_sgb_captured = 1'b0;
     reg       hdr_lic_captured = 1'b0;
+    reg       hdr_title_captured = 1'b0;
 
     always @(posedge hclk) begin
         if (gbreset) begin
             hdr_cgb_captured <= 1'b0;
             hdr_sgb_captured <= 1'b0;
             hdr_lic_captured <= 1'b0;
+            hdr_title_captured <= 1'b0;
         end else if (rd) begin
             case (a)
+                16'h0134: cart_title[31:24] <= CART_DIN_r1;
+                16'h0135: cart_title[23:16] <= CART_DIN_r1;
+                16'h0136: cart_title[15:8]  <= CART_DIN_r1;
+                16'h0137: begin cart_title[7:0] <= CART_DIN_r1; hdr_title_captured <= 1'b1; end
                 16'h0143: begin cart_cgb_flag <= CART_DIN_r1; hdr_cgb_captured <= 1'b1; end
                 16'h0146: begin cart_sgb_flag <= CART_DIN_r1; hdr_sgb_captured <= 1'b1; end
                 16'h014B: begin cart_old_lic  <= CART_DIN_r1; hdr_lic_captured  <= 1'b1; end
@@ -363,6 +376,19 @@ module emu_system_top
             endcase
         end
     end
+
+    // flashcart_det: the cart is a flashcart running its own OS rather
+    // than a plain game ROM. Signatures verified against krikzz's OS
+    // images: EverDrive-GB X-series (X3/X5/X7) GBC-OS titles the header
+    // "GBXOS"; the original-series OS (GBOS.GB) titles it "GBOS". Both
+    // set the CGB flag, so the boot ROM's Preboot reads the title bytes
+    // for this snoop (the DMG-only palette-checksum path alone would
+    // never read them for a CGB-flagged cart). The safe-boot override in
+    // gb.v uses this to keep the CPU at 1x until the OS actually boots a
+    // game, because these OSes do timing-critical SD I/O that hangs
+    // under the overclock.
+    wire flashcart_det = hdr_title_captured &&
+                         (cart_title == "GBXO" || cart_title == "GBOS");
 
     // isGBC_game: cart supports CGB features
     wire isGBC_game = hdr_cgb_captured ?
@@ -387,6 +413,7 @@ module emu_system_top
         .isGBC(1'b1),                    // constant: CGB hardware; DMG/SGB mode set via FF4C KEY0
         .isSGB(sgb_detected),            // native SGB engine enable (static, from header snoop)
         .isGBC_game(isGBC_game & ~sgb_detected),
+        .flashcart_det(flashcart_det),   // header title snoop (EverDrive "GBXOS"/"GBOS")
         .real_cgb_boot(1'd0),
         .customPaletteEna(customPaletteEna),
         .paletteBGIn(paletteBGIn),

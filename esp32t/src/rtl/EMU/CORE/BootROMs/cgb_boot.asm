@@ -839,6 +839,19 @@ Preboot:
     ld e, c
     ld l, $0d
 
+    ; FPGA safe-boot header snoop: always read the first title bytes so the
+    ; core (emu_system_top.v) can identify flashcart OSes -- EverDrive X-series
+    ; "GBXOS" and original-series "GBOS" -- and hold the CPU at 1x until the
+    ; OS boots a real game (their SD I/O hangs when overclocked). The DMG/SGB
+    ; path reads the title again for its palette checksum; CGB carts never
+    ; enter EmulateDMG, so without these reads the FPGA would never see the
+    ; title of a CGB-flagged cart like the EverDrive OS. Reads only, clobbers
+    ; a (reloaded below); d/e/l are the final boot values and must not change.
+    ld a, [$134]
+    ld a, [$135]
+    ld a, [$136]
+    ld a, [$137]
+
     ; Check cart CGB compatibility byte
     ld a, [$143]
     bit 7, a
