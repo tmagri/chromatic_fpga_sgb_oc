@@ -88,8 +88,10 @@ module cart
             CART_RD <= 1'd1;
             CART_WR <= 1'd1;
             CART_CS <= 1'd1;
+            CART_DATA_DIR <= 1'd0;   // release the data bus: a cart /RST may land mid-write
             counter <= 'd9;
             phi     <= 'd0;
+            phiCnt  <= 2'd0;
         end
         else
         begin

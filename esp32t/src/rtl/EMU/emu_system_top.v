@@ -195,22 +195,29 @@ module emu_system_top
     reg gbreset_ungated;
     reg CART_RST_r1;
     reg CART_RST_r2;
+    reg [15:0] CART_RST_sr;   // debounce filter: /RST must be low 16 consecutive hclk (~1 us)
     reg ce_2x_r1;
     always@(posedge hclk)
         ce_2x_r1 <= ce_2x;
-        
+
     always@(posedge hclk or negedge reset_n)
     begin
         if(~reset_n)
         begin
             gbreset <= 1'd1;
             gbreset_ungated <= 1'd1;
+            CART_RST_sr <= 16'hFFFF;
         end
         else
         begin
             CART_RST_r1 <= CART_RST;
             CART_RST_r2 <= CART_RST_r1;
-            gbreset_ungated <= ~LCD_INIT_DONE ? 1'b1 : ~CART_RST_r2;
+            CART_RST_sr <= {CART_RST_sr[14:0], CART_RST_r2};
+            // Debounced: the FPGA never drives CART_RST (high-Z), so a sub-us
+            // glitch/float on the cart's /RST line used to cause a spurious full
+            // reboot. A real cart reset (EverDrive menu) is held for milliseconds,
+            // so requiring 16 consecutive low samples rejects glitches only.
+            gbreset_ungated <= ~LCD_INIT_DONE ? 1'b1 : (CART_RST_sr == 16'd0);
             if(~ce_2x_r1 & ce_2x & ce)
                 gbreset <= gbreset_ungated;
                 
@@ -230,19 +237,25 @@ module emu_system_top
     // enable for the SGB palette/multitap engine now merged into gb.v.
     //
     // sgb_detected deliberately PERSISTS across gbreset (it is cleared only
-    // on cart removal): a save-state resume of an SGB game does not assert
-    // gbreset, so the flag must stay set or the game would resume in SGB mode
-    // with the engine disabled (isSGB=0) and hang. While latched for a non-SGB
-    // cart the engine is simply idle (no SGB packets -> overlay inactive) and
-    // the joypad still uses the normal decode, so persistence is harmless.
+    // on reset_n, i.e. physical cart removal via CART_DET, PLL unlock or power
+    // cycle): a save-state resume of an SGB game does not assert gbreset, so
+    // the flag must stay set or the game would resume in SGB mode with the
+    // engine disabled (isSGB=0) and hang.
+    //
+    // NOTE: this must NOT clear on CART_RST. An EverDrive opens its in-game
+    // menu by asserting the cart /RST line, which (correctly) triggers a
+    // gbreset and boots the OS ROM -- but the OS header is not SGB-flagged, so
+    // clearing here left resumed SGB games with isSGB=0 and a disabled engine.
+    // Cart removal is covered by CART_DET -> memrst -> reset_n, which does
+    // clear the flag. While latched for a non-SGB cart the engine is simply
+    // idle (no SGB packets -> overlay inactive) and the joypad still uses the
+    // normal decode, so persistence is harmless.
     // ----------------------------------------------------------------
     reg sgb_detected;   // latched: 1 = SGB game (enables SGB palette/multitap)
 
     always @(posedge hclk or negedge reset_n) begin
         if (~reset_n)
             sgb_detected <= 1'b0;
-        else if (~CART_RST_r2)
-            sgb_detected <= 1'b0;              // cart removed -> re-detect next boot
         else if (isSGB_game && !isGBC_game)
             sgb_detected <= 1'b1;              // latch once the header is snooped
     end
@@ -374,6 +387,26 @@ module emu_system_top
                       (cart_sgb_flag == 8'h03) && (cart_old_lic == 8'h33);
     assign isSGB_out = sgb_detected;
 
+    // ----------------------------------------------------------------
+    // Sticky CGB-game detection: once a CGB-flagged cart ($0143=$80/$C0) has
+    // booted, keep the core in CGB mode for the whole cart session. An
+    // EverDrive opens its in-game menu via the cart /RST line and boots the
+    // OS ROM, whose header is typically NOT CGB-flagged; FF4C (KEY0) is
+    // write-once during boot, so without this latch a resumed GBC game would
+    // run in DMG mode (HDMA/KEY1/SVBK dead) and crash. Cleared only on
+    // reset_n (physical cart removal / PLL unlock / power), mirroring
+    // sgb_detected. While no CGB cart has booted this session the flag is 0
+    // and mode selection behaves exactly as before. DMG programs run fine
+    // with CGB registers merely enabled (they never touch them).
+    // ----------------------------------------------------------------
+    reg cgb_game_detected = 1'b0;
+    always @(posedge hclk or negedge reset_n) begin
+        if (~reset_n)
+            cgb_game_detected <= 1'b0;
+        else if (hdr_cgb_captured && (cart_cgb_flag == 8'h80 || cart_cgb_flag == 8'hC0))
+            cgb_game_detected <= 1'b1;
+    end
+
     gb u_gb(
         .reset(gbreset),
 
@@ -387,6 +420,7 @@ module emu_system_top
         .isGBC(1'b1),                    // constant: CGB hardware; DMG/SGB mode set via FF4C KEY0
         .isSGB(sgb_detected),            // native SGB engine enable (static, from header snoop)
         .isGBC_game(isGBC_game & ~sgb_detected),
+        .cgb_game_detected(cgb_game_detected),
         .real_cgb_boot(1'd0),
         .customPaletteEna(customPaletteEna),
         .paletteBGIn(paletteBGIn),

@@ -32,6 +32,7 @@ module gb (
     input isGBC,
     input isSGB,        // native SGB enable: cart is an SGB game (static, from header detect)
     input isGBC_game,   // cart uses CGB features (SGB palette is bypassed when set; 0 for SGB games)
+    input cgb_game_detected, // sticky: a CGB-flagged cart booted this session (survives ED-menu /RST)
     input real_cgb_boot,
     input paletteOff,
     input customPaletteEna,
@@ -51,8 +52,10 @@ module gb (
     output [7:0] cart_di,
     input  cart_oe,
     // High while a physical cartridge bus cycle is in flight (from cart.v).
-    // Used to gate ce_cpu to 1× so the CPU never advances past T3 before
-    // the ROM has had its full tACC window.
+    // NOTE: currently UNUSED inside the core. Cart bus timing is fixed-phase
+    // and locked to the CPU T-states (see cart.v), so no wait states are
+    // inserted; this port is retained for future wait-state support and for
+    // the system monitor / save-state arbiter.
     input  cart_busy,
     output  [2:0] TSTATEo,
     output  TSTATE1,
@@ -188,7 +191,12 @@ eReg_SavestateV #(0, 38, 10, 0, 64'h0000000000000000) iREG_SAVESTATE_Top2 (clk_s
 // include cpu
 
 reg [1:0] ff4c_key0; // GBC DMG mode register
-wire isGBC_mode = !ff4c_key0 | boot_rom_enabled;
+// Sticky cgb_game_detected keeps CGB registers enabled once a CGB-flagged cart
+// has booted this session: an EverDrive menu /RST boots the OS ROM, whose
+// (non-CGB) header would otherwise lock FF4C/KEY0 into DMG mode, and "resume"
+// would return to the game with HDMA/KEY1/SVBK dead. The sticky flag only ever
+// ADDS CGB mode; KEY0 write semantics are unchanged.
+wire isGBC_mode = !ff4c_key0 | boot_rom_enabled | cgb_game_detected;
 
 wire [15:0] cpu_addr;
 wire [7:0] cpu_do;
@@ -588,8 +596,11 @@ always @(posedge clk_sys) begin
     else if (ce_2x && sel_key1 && !cpu_wr_n_edge)begin
         prepare_switch <= cpu_do[0];
     end
-    
-    if (ce_2x && isGBC && prepare_switch && cpu_stop) begin
+    // else-if chain: reset must win over a pending KEY1/STOP speed switch.
+    // As independent ifs, Verilog last-assignment-wins let cpu_speed TOGGLE
+    // on a reset edge that coincided with the switch, leaving the core in
+    // double speed while the boot ROM expects normal speed.
+    else if (ce_2x && isGBC && prepare_switch && cpu_stop) begin
         cpu_speed <= !cpu_speed;
         prepare_switch <= 1'b0;
     end
@@ -1493,6 +1504,7 @@ wire p14 = joy_p54[0];
 wire p15 = joy_p54[1];
 
 reg old_p15, old_p14;
+reg [11:0] pkt_idle_cnt;       // SGB packet idle watchdog: ce ticks since last P14/P15 edge
 reg [7:0] data;
 reg [3:0] byte_cnt;
 reg [2:0] cnt, packet_cnt;
@@ -1544,6 +1556,12 @@ always @(posedge clk_sys) begin
 		mask_en <= 0;
 		packet_end <= 1'b1;
 		mlt_ctrl <= 0;
+		// Seed the edge detectors with the current (possibly savestate-restored)
+		// P14/P15 so the first ce after reset/resume cannot see a phantom edge
+		// and arm/shift the receiver from stale state.
+		old_p15 <= p15;
+		old_p14 <= p14;
+		pkt_idle_cnt <= 0;
 	 end else if (ce) begin
 		old_p15 <= p15;
 		old_p14 <= p14;
@@ -1564,6 +1582,24 @@ always @(posedge clk_sys) begin
 
 			if ((old_p15 ^ p15) & (old_p15 ^ old_p14) & (p15 ^ p14)) begin
 				packet_end <= 1'b1;
+			end
+
+			// Idle watchdog: legitimate packet bits arrive a few us apart (each
+			// P14/P15 write is a full instruction), so ~1 ms (4096 ce) without
+			// any edge can only mean the receiver is stuck on a partial packet.
+			// Drop the partial packet instead of leaving it armed -- without
+			// this, one garbage byte stream could latch mask_en (black screen)
+			// with no recovery short of a clean cancel packet or hard reset.
+			if ((old_p15 != p15) | (old_p14 != p14))
+				pkt_idle_cnt <= 0;
+			else if (pkt_idle_cnt != 12'hFFF)
+				pkt_idle_cnt <= pkt_idle_cnt + 1'b1;
+
+			if (&pkt_idle_cnt) begin
+				packet_end <= 1'b1;
+				cnt        <= 0;
+				byte_cnt   <= 0;
+				byte_done  <= 1'b0;
 			end
 		end
 
