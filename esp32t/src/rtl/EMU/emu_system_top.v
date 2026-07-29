@@ -387,26 +387,6 @@ module emu_system_top
                       (cart_sgb_flag == 8'h03) && (cart_old_lic == 8'h33);
     assign isSGB_out = sgb_detected;
 
-    // ----------------------------------------------------------------
-    // Sticky CGB-game detection: once a CGB-flagged cart ($0143=$80/$C0) has
-    // booted, keep the core in CGB mode for the whole cart session. An
-    // EverDrive opens its in-game menu via the cart /RST line and boots the
-    // OS ROM, whose header is typically NOT CGB-flagged; FF4C (KEY0) is
-    // write-once during boot, so without this latch a resumed GBC game would
-    // run in DMG mode (HDMA/KEY1/SVBK dead) and crash. Cleared only on
-    // reset_n (physical cart removal / PLL unlock / power), mirroring
-    // sgb_detected. While no CGB cart has booted this session the flag is 0
-    // and mode selection behaves exactly as before. DMG programs run fine
-    // with CGB registers merely enabled (they never touch them).
-    // ----------------------------------------------------------------
-    reg cgb_game_detected = 1'b0;
-    always @(posedge hclk or negedge reset_n) begin
-        if (~reset_n)
-            cgb_game_detected <= 1'b0;
-        else if (hdr_cgb_captured && (cart_cgb_flag == 8'h80 || cart_cgb_flag == 8'hC0))
-            cgb_game_detected <= 1'b1;
-    end
-
     gb u_gb(
         .reset(gbreset),
 
@@ -420,7 +400,6 @@ module emu_system_top
         .isGBC(1'b1),                    // constant: CGB hardware; DMG/SGB mode set via FF4C KEY0
         .isSGB(sgb_detected),            // native SGB engine enable (static, from header snoop)
         .isGBC_game(isGBC_game & ~sgb_detected),
-        .cgb_game_detected(cgb_game_detected),
         .real_cgb_boot(1'd0),
         .customPaletteEna(customPaletteEna),
         .paletteBGIn(paletteBGIn),

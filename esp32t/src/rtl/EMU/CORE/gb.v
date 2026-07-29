@@ -32,7 +32,6 @@ module gb (
     input isGBC,
     input isSGB,        // native SGB enable: cart is an SGB game (static, from header detect)
     input isGBC_game,   // cart uses CGB features (SGB palette is bypassed when set; 0 for SGB games)
-    input cgb_game_detected, // sticky: a CGB-flagged cart booted this session (survives ED-menu /RST)
     input real_cgb_boot,
     input paletteOff,
     input customPaletteEna,
@@ -191,12 +190,7 @@ eReg_SavestateV #(0, 38, 10, 0, 64'h0000000000000000) iREG_SAVESTATE_Top2 (clk_s
 // include cpu
 
 reg [1:0] ff4c_key0; // GBC DMG mode register
-// Sticky cgb_game_detected keeps CGB registers enabled once a CGB-flagged cart
-// has booted this session: an EverDrive menu /RST boots the OS ROM, whose
-// (non-CGB) header would otherwise lock FF4C/KEY0 into DMG mode, and "resume"
-// would return to the game with HDMA/KEY1/SVBK dead. The sticky flag only ever
-// ADDS CGB mode; KEY0 write semantics are unchanged.
-wire isGBC_mode = !ff4c_key0 | boot_rom_enabled | cgb_game_detected;
+wire isGBC_mode = !ff4c_key0 | boot_rom_enabled;
 
 wire [15:0] cpu_addr;
 wire [7:0] cpu_do;
