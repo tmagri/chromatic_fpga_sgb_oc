@@ -58,7 +58,7 @@ module emu_system_top
     output              gb_lcd_on,
     output              gb_lcd_vsync,
     output              boot_done_out
-    
+
 );
 
     parameter SRSIZE = 15;
@@ -195,7 +195,6 @@ module emu_system_top
     reg gbreset_ungated;
     reg CART_RST_r1;
     reg CART_RST_r2;
-    reg [15:0] CART_RST_sr;   // debounce filter: /RST must be low 16 consecutive hclk (~1 us)
     reg ce_2x_r1;
     always@(posedge hclk)
         ce_2x_r1 <= ce_2x;
@@ -206,18 +205,24 @@ module emu_system_top
         begin
             gbreset <= 1'd1;
             gbreset_ungated <= 1'd1;
-            CART_RST_sr <= 16'hFFFF;
         end
         else
         begin
             CART_RST_r1 <= CART_RST;
             CART_RST_r2 <= CART_RST_r1;
-            CART_RST_sr <= {CART_RST_sr[14:0], CART_RST_r2};
-            // Debounced: the FPGA never drives CART_RST (high-Z), so a sub-us
-            // glitch/float on the cart's /RST line used to cause a spurious full
-            // reboot. A real cart reset (EverDrive menu) is held for milliseconds,
-            // so requiring 16 consecutive low samples rejects glitches only.
-            gbreset_ungated <= ~LCD_INIT_DONE ? 1'b1 : (CART_RST_sr == 16'd0);
+            // No debounce -- identical to the official ModRetro firmware
+            // (v18.8). The spurious in-game resets a debounce was added for
+            // come from CART_DET glitches, and are handled at the source by
+            // the weak pull-up on CART_DET in evt1_x2.cst and the window
+            // filter on memrst in top.v. The EverDrive drives /RST both to
+            // open its menu (held for milliseconds) and as a fast pulse on
+            // exit / save-state load; a window wide enough to reject one
+            // risked swallowing the other, so filtering stays off here.
+            // If spurious in-game resets reappear, /RST glitches are back
+            // and filtering (or a better CART_RST pull strategy) should be
+            // revisited -- but note the EverDrive's menu pulse is very
+            // short, so any filter window must stay under ~1 us.
+            gbreset_ungated <= ~LCD_INIT_DONE ? 1'b1 : ~CART_RST_r2;
             if(~ce_2x_r1 & ce_2x & ce)
                 gbreset <= gbreset_ungated;
                 
@@ -229,35 +234,42 @@ module emu_system_top
 
     // ----------------------------------------------------------------
     // Native SGB detection: snoop the cart header during the single
-    // CGB-mode boot and statically latch whether this is an SGB game.
-    // There is NO reboot and NO runtime isGBC toggling -- the universal
-    // boot ROM switches DMG/SGB games into DMG mode via FF4C (KEY0) and
-    // pushes the SGB packet sequence itself (leaving A=$01), so the game
-    // emits SGB commands in a single pass. The core only needs a static
+    // CGB-mode boot and latch whether this is an SGB game. There is NO
+    // reboot and NO runtime isGBC toggling -- the universal boot ROM
+    // switches DMG/SGB games into DMG mode via FF4C (KEY0) and pushes
+    // the SGB packet sequence itself (leaving A=$01), so the game emits
+    // SGB commands in a single pass. The core only needs a static
     // enable for the SGB palette/multitap engine now merged into gb.v.
     //
-    // sgb_detected deliberately PERSISTS across gbreset (it is cleared only
-    // on reset_n, i.e. physical cart removal via CART_DET, PLL unlock or power
-    // cycle): a save-state resume of an SGB game does not assert gbreset, so
-    // the flag must stay set or the game would resume in SGB mode with the
-    // engine disabled (isSGB=0) and hang.
-    //
-    // NOTE: this must NOT clear on CART_RST. An EverDrive opens its in-game
-    // menu by asserting the cart /RST line, which (correctly) triggers a
-    // gbreset and boots the OS ROM -- but the OS header is not SGB-flagged, so
-    // clearing here left resumed SGB games with isSGB=0 and a disabled engine.
-    // Cart removal is covered by CART_DET -> memrst -> reset_n, which does
-    // clear the flag. While latched for a non-SGB cart the engine is simply
-    // idle (no SGB packets -> overlay inactive) and the joypad still uses the
-    // normal decode, so persistence is harmless.
+    // sgb_detected is PER-SESSION: cleared on gbreset, set when the
+    // running cart's header is snooped as SGB during the boot ROM. This
+    // matches the official ModRetro firmware and the stable pre-native
+    // behaviour, which cleared SGB detection on every cart /RST. It
+    // must NOT be sticky across resets: with isSGB held high, the
+    // merged SGB packet receiver acts on P14/P15 edges from ANY
+    // software, including the EverDrive OS's and ordinary games'
+    // joypad polling. Polling that leaves P1=$30 between reads shifts
+    // one garbage bit per frame with no packet_end, and within ~2 s
+    // completes a zero-filled packet whose cmd=0 decodes as PAL01 --
+    // the engine then latches output_sgb_pal with an all-black palette
+    // and corrupts the display of whatever is running. That is the
+    // "glitchy sprites, crash, restart" failure seen on ALL game types
+    // once any SGB title had been booted in the session (an earlier
+    // revision made the flag sticky to keep the engine alive across an
+    // EverDrive no-reset save-state resume; the cost was this
+    // corruption, and the stable firmware resumed SGB games with the
+    // engine off -- monochrome -- which is the behaviour restored
+    // here; colour returns on the next clean boot).
+    // Cart removal also clears the flag via CART_DET -> memrst -> reset_n.
     // ----------------------------------------------------------------
-    reg sgb_detected;   // latched: 1 = SGB game (enables SGB palette/multitap)
+    reg sgb_detected;   // per-session: 1 = the cart that booted this session is SGB
+    wire sgb_pal_ready; // SGB engine has a live palette (boot blackout gate)
 
     always @(posedge hclk or negedge reset_n) begin
-        if (~reset_n)
+        if (~reset_n | gbreset)
             sgb_detected <= 1'b0;
         else if (isSGB_game && !isGBC_game)
-            sgb_detected <= 1'b1;              // latch once the header is snooped
+            sgb_detected <= 1'b1;   // latch when the header is snooped during boot
     end
 
     wire DMA_on;
@@ -496,6 +508,7 @@ module emu_system_top
         .load_state(ss_load),
         .savestate_number(2'd0),
         .sleep_savestate(sleep_savestate),
+        .sgb_pal_ready(sgb_pal_ready),
 
         .SaveStateExt_Din(), 
         .SaveStateExt_Adr(), 
@@ -560,13 +573,17 @@ module emu_system_top
     // memrst reset, so a cart-detect/PLL glitch during play cannot disturb the
     // picture. SGB packet capture is unaffected -- the SGB engine (merged into
     // gb.v) reads the un-overridden gb_raw / SGB taps, not gb_lcd_data.
+    // SGB boots get a longer, palette-gated blackout (see the release
+    // condition below) so the game's SGB initialisation -- monochrome logo
+    // phase plus the PAL_TRN colour-grid frames -- stays hidden until the
+    // SGB palette is live, like the MASK_EN freeze on real hardware.
     reg        boot_done;
     reg        prev_boot_rom_enabled;
     reg [14:0] frame_ref;
     reg        frame_started;
     reg        frame_nonuniform;
     reg [1:0]  nonuniform_frames;
-    reg [6:0]  frames_since_unmap;
+    reg [7:0]  frames_since_unmap;
     reg        gb_vsync_d;
     always @(posedge hclk) begin
         gb_vsync_d            <= gb_raw_lcd_vsync;
@@ -578,7 +595,7 @@ module emu_system_top
             // black too, not just the boot-ROM window.
             boot_done          <= 1'b0;
             nonuniform_frames  <= 2'd0;
-            frames_since_unmap <= 7'd0;
+            frames_since_unmap <= 8'd0;
             frame_started      <= 1'b0;
             frame_nonuniform   <= 1'b0;
         end else if (~boot_done) begin
@@ -590,10 +607,17 @@ module emu_system_top
                             nonuniform_frames <= nonuniform_frames + 2'd1;
                     end else
                         nonuniform_frames <= 2'd0;
-                    if (frames_since_unmap < 7'd63)
-                        frames_since_unmap <= frames_since_unmap + 7'd1;
-                    if (nonuniform_frames >= 2'd2
-                            || (frames_since_unmap >= 7'd60 && lcd_on_int))
+                    if (frames_since_unmap < 8'd250)
+                        frames_since_unmap <= frames_since_unmap + 8'd1;
+                    // SGB games also wait for the engine's first palette of
+                    // the current LCD session (sgb_pal_ready): masks the
+                    // monochrome boot phase and the PAL_TRN palette-grid
+                    // frames (a real SGB hides those with MASK_EN freeze,
+                    // unreproduced here). 240f (~4 s) timeout covers very
+                    // late-palette intros (Kirby Block Ball, Pokemon); 60f
+                    // for everything else.
+                    if ((nonuniform_frames >= 2'd2 && (~sgb_detected | sgb_pal_ready))
+                            || (frames_since_unmap >= (sgb_detected ? 8'd240 : 8'd60) && lcd_on_int))
                         boot_done <= 1'b1;
                 end
                 frame_started    <= 1'b0;

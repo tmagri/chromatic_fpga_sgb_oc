@@ -1106,8 +1106,15 @@ assign paletteCustomOBJ[14] = paletteOBJ1In[55:48];
 assign paletteCustomOBJ[15] = paletteOBJ1In[63:56];
 
 // apply bg palette
+// CGB palette RAM (bgpd) is only the colour source in CGB mode. In DMG
+// mode (KEY0) a real CGB renders from the DMG BGP register -- the CGB
+// palette RAM still exists but is not scanned out. Rendering from bgpd
+// in DMG mode corrupted every DMG game resumed through the EverDrive
+// menu: the OS leaves its own menu colours in bgpd, DMG games only
+// write BGP (which was then ignored for display) -> Kirby Dream Land
+// resumed to an all-black screen with otherwise perfect register state.
 wire [2:0] palette_index_gb = palette_index[2:0];
-wire [14:0] gbc_paletteBG = isGBC ? {bgpd[palette_index+1][6:0], bgpd[palette_index]} : // gbc
+wire [14:0] gbc_paletteBG = (isGBC && isGBC_mode) ? {bgpd[palette_index+1][6:0], bgpd[palette_index]} : // gbc
                                     bgp_data[1] ? (bgp_data[0] ? 15'h0000 : 15'h294A) :
                                                    (bgp_data[0] ? 15'h56B5 : 15'h7FFF);
 wire [14:0] pix_rgb_data = (customPaletteEna && ~isGBC_mode) ? {paletteCustomBG[palette_index_gb+1][6:0], paletteCustomBG[palette_index_gb]} : // custom
@@ -1118,7 +1125,7 @@ wire [2:0] spr_cgb_pal_out = {spr_cgb_pal_shift[2][7], spr_cgb_pal_shift[1][7], 
 wire [5:0] sprite_palette_index = isGBC_mode ? {spr_cgb_pal_out, sprite_pixel_data, 1'b0 } : //gbc game
                                                {sprite_pixel_cmap, obp_data, 1'b0}; //GB game in GBC mode
 
-wire [14:0] gbc_paletteSprite = isGBC ? {obpd[sprite_palette_index+1][6:0], obpd[sprite_palette_index]} : // gbc
+wire [14:0] gbc_paletteSprite = (isGBC && isGBC_mode) ? {obpd[sprite_palette_index+1][6:0], obpd[sprite_palette_index]} : // gbc
                                         obp_data[1] ? (obp_data[0] ? 15'h0000 : 15'h294A) :
                                                        (obp_data[0] ? 15'h56B5 : 15'h7FFF);
 wire [14:0] sprite_pix = (customPaletteEna && ~isGBC_mode) ? {paletteCustomOBJ[sprite_palette_index+1][6:0], paletteCustomOBJ[sprite_palette_index]} : // custom

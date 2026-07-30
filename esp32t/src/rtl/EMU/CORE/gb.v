@@ -137,7 +137,10 @@ module gb (
     input        load_state,
     input  [1:0] savestate_number,
     output       sleep_savestate,
-    
+    // SGB engine has a live palette (output_sgb_pal). emu_system_top holds
+    // the boot blackout until this for SGB boots (hides PAL_TRN grid etc.).
+    output       sgb_pal_ready,
+
     output [63:0] SaveStateExt_Din, 
     output [9:0]  SaveStateExt_Adr, 
     output        SaveStateExt_wren,
@@ -196,7 +199,7 @@ wire [15:0] cpu_addr;
 wire [7:0] cpu_do;
 
 wire sel_timer = (cpu_addr[15:4] == 12'hff0) && (cpu_addr[3:2] == 2'b01);
-wire sel_video_reg = (cpu_addr[15:4] == 12'hff4) || (isGBC && (cpu_addr[15:4] == 12'hff6) && (cpu_addr[3:0] >= 4'h8 && cpu_addr[3:0] <= 4'hC)); //video and oam dma (+ ff68-ff6C when gbc)
+wire sel_video_reg = (cpu_addr[15:4] == 12'hff4) || (isGBC && isGBC_mode && (cpu_addr[15:4] == 12'hff6) && (cpu_addr[3:0] >= 4'h8 && cpu_addr[3:0] <= 4'hC)); //video and oam dma (+ ff68-ff6C in CGB mode only; absent in DMG mode like real hardware)
 wire sel_video_oam = cpu_addr[15:8] == 8'hfe;
 wire sel_joy  = cpu_addr == 16'hff00;                // joystick controller
 wire sel_sb  = cpu_addr == 16'hff01;                    // serial SB - Serial transfer data
@@ -520,6 +523,12 @@ GBse cpu (
    .TSTATE3           (TSTATE3),
    .TSTATE4           (TSTATE4),
     .STOP              ( cpu_stop        ),
+    // T80's only isGBC-dependent behaviour is HALT exit timing (DMG leaves
+    // HALT early when an interrupt is pending). REVERTED to the original
+    // constant-isGBC wiring pending A/B testing: the mode-gated version is
+    // a correctness argument (real CGB-in-DMG-mode uses DMG timing) but it
+    // changes behaviour for every DMG/SGB game and is currently an
+    // untested variable in the EverDrive resume debugging.
     .isGBC             ( isGBC           ),
    // savestates
    .SaveStateBus_Din  (SaveStateBus_Din ), 
@@ -924,6 +933,24 @@ end
 // are produced by the SGB engine inlined at the bottom of this module.
 assign lcd_data = (isSGB & sgb_pal_en) ? sgb_pal_out : lcd_data_core;
 
+// Palette-ready for the boot blackout: output_sgb_pal qualified by the
+// last LCD power-on. Raw output_sgb_pal arms too early -- the game's SGB
+// detection handshake and early packets can latch palette writes before
+// the real setup, releasing the blackout onto the monochrome logo /
+// PAL_TRN grid. Real palette/attribute setup happens around the game's
+// LCD off/on (tile loads, grid draw), so re-arm only after the last
+// lcd_on rising: black until a palette lands on the current LCD session.
+reg pal_ready_since_on = 1'b0;
+always @(posedge clk_sys) begin
+    if (reset_ss)
+        pal_ready_since_on <= 1'b0;
+    else if (sgb_lcd_off_edge)
+        pal_ready_since_on <= 1'b0;
+    else if (output_sgb_pal)
+        pal_ready_since_on <= 1'b1;
+end
+assign sgb_pal_ready = pal_ready_since_on;
+
 // SGB taps: mirror of the output stage above, but sourced from the main
 // video path only. Never muxes in videoBypass, so sgb.v sees a clean
 // constant "LCD off" while the game's LCD is disabled and true frame
@@ -1098,7 +1125,11 @@ always @(posedge clk_sys) begin
     if(reset_ss)
         vram_bank <= SS_Top[22]; // 1'd0;
     else if (ce_cpu) begin
-        if((cpu_addr == 16'hff4f) && !cpu_wr_n_edge && isGBC)
+        // FF4F (VBK) only exists in CGB mode: a real CGB booted in DMG
+        // mode (KEY0) ignores writes to it. The EverDrive OS exit stub
+        // writes FF4F; accepting it in DMG mode stranded vram_bank=1 and
+        // turned resumed games into tile garbage (Kirby Block Ball).
+        if((cpu_addr == 16'hff4f) && !cpu_wr_n_edge && isGBC && isGBC_mode)
             vram_bank <= cpu_do[0];
     end
 end
@@ -1606,7 +1637,7 @@ always @(posedge clk_sys) begin
 		attr_div_set <= 0;
 		attr_chr_set <= 0;
 
-		if (pal_cancel_mask | attr_cancel_mask) mask_en <= 0;
+		if (pal_cancel_mask | attr_cancel_mask | sgb_lcd_off_edge) mask_en <= 0;
 
 		if (byte_done) begin
 			byte_done <= 0;
@@ -1900,15 +1931,6 @@ always @(posedge clk_sys) begin
 	end
 end
 
-// TEMP DEBUG: latches when the PAL_TRN frame-scanner capture actually writes a
-// palette entry into sys_pal_ram. Used by the sgb_debug overlay to tell whether
-// the PAL_TRN upload is populating the palette table (see sgb_pal_out below).
-reg pal_trn_captured;
-always @(posedge clk_sys) begin
-	if (reset_ss) pal_trn_captured <= 1'b0;
-	else if (trn_data_wr && cmd == CMD_PAL_TRN) pal_trn_captured <= 1'b1;
-end
-
 // Palette storage
 reg [14:0] sys_pal_data, pal_wr_data;
 reg [1:0] pal_wr_no, pal_wr_col_no;
@@ -1916,6 +1938,18 @@ reg [59:0] palette[4];
 reg pal_set_wait, pal_set_busy, pal_wr, pal_cancel_mask, pal_clear;
 reg [3:0] pal_set_cnt, pal_set_cnt_r;
 reg output_sgb_pal;
+
+// EverDrive OS palette-bleed fix: the EDGB OS header reads as SGB-flagged,
+// so the engine is live during the OS session and latches the OS's own menu
+// palette (output_sgb_pal=1, the "reddish tinge"). SGB games toggle the LCD
+// in their init and on screen changes, re-sending palettes there -- so drop
+// the overlay enable and the screen mask on lcd_on falling: the OS palette
+// is discarded at the game's first LCD-off, and the game's own packets
+// re-arm the overlay. No effect on steady gameplay (no LCD toggle = no
+// clear; games that restyle per screen restyle after the toggle anyway).
+reg  sgb_lcd_on_prev = 1'b1;
+wire sgb_lcd_off_edge = sgb_lcd_on_prev & ~lcd_on_sgb;
+always @(posedge clk_sys) if (ce) sgb_lcd_on_prev <= lcd_on_sgb;
 
 always @(posedge clk_sys) begin
 	if (reset_ss) begin
@@ -1925,6 +1959,8 @@ always @(posedge clk_sys) begin
 		pal_clear <= 1'b1;
 		pal_set_cnt <= 0;
 	end else if (ce) begin
+
+		if (sgb_lcd_off_edge) output_sgb_pal <= 0;
 
 		pal_cancel_mask <= 0;
 		pal_wr <= 0;

@@ -232,7 +232,15 @@ module top #(parameter ISSIMU=0)
     wire [1:0] gb_lcd_mode;
     wire gb_lcd_on;
     wire gb_lcd_vsync;
+    wire boot_done;
     wire LCD_INIT_DONE;
+    wire LCD_PWM_raw;
+
+    // Backlight off until the core's boot blackout releases (boot_done):
+    // pixels are already masked black in emu_system_top, but SGB boots
+    // hold the mask for several seconds, and a lit-black panel glows --
+    // gate the PWM so the screen is truly dark until the game is ready.
+    assign LCD_PWM = boot_done ? LCD_PWM_raw : 1'b0;
 
     wire              hGBNewLine;
     wire [22:0]       hGBAddress;
@@ -501,7 +509,8 @@ module top #(parameter ISSIMU=0)
         .gb_lcd_mode(gb_lcd_mode),
         .gb_lcd_on(gb_lcd_on),
         .gb_lcd_vsync(gb_lcd_vsync),
-        .gb_lcd_data(gb_lcd_data)
+        .gb_lcd_data(gb_lcd_data),
+        .boot_done_out(boot_done)
     );
 
     reg UART_TXD;
@@ -693,7 +702,7 @@ module top #(parameter ISSIMU=0)
         // the LCD *pixels* black until boot_done in emu_system_top (the
         // backlight no longer gates that).
         .LCD_INIT_DONE(LCD_INIT_DONE),
-        .LCD_PWM(LCD_PWM),
+        .LCD_PWM(LCD_PWM_raw),
         .hAdcReq_ext(hAdcReq_ext),
         //.hAdcValue_r1(voltageSim),
         .hAdcValue_r1(hAdcValue_r1),

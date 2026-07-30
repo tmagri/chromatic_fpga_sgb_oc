@@ -931,14 +931,21 @@ GetPaletteIndex:
 
     ; SGB detection. These reads of $0146/$014B are also snooped by the FPGA
     ; (emu_system_top.v) to set its static SGB engine enable -- so they must
-    ; stay as real bus reads. SGB game <=> SGB flag $0146 == $03 AND old
-    ; licensee $014B == $33. GetPaletteIndex runs only for non-CGB carts
-    ; (called via EmulateDMG), which is exactly the SGB/DMG case.
+    ; stay as real bus reads, and BOTH must be issued unconditionally: the
+    ; stable boot ROM always read $0146 then $014B here, and EverDrive-style
+    ; carts snoop the console's header reads to track boot progress, so
+    ; skipping $014B on non-SGB carts changed the bus pattern they expect.
+    ; SGB game <=> SGB flag $0146 == $03 AND old licensee $014B == $33.
+    ; GetPaletteIndex runs only for non-CGB carts (called via EmulateDMG),
+    ; which is exactly the SGB/DMG case. c is free here (the checksum-loop
+    ; counter above has finished and every caller sets its own c afterwards).
     ld a, [$0146]
-    cp $03
-    jr nz, .notSGB
+    ld c, a
     ld a, [$014B]
     cp $33
+    jr nz, .notSGB
+    ld a, c
+    cp $03
     jr nz, .notSGB
     ld a, 1
     ldh [SgbFlag], a
