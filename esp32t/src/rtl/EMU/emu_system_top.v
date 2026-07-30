@@ -480,6 +480,11 @@ module emu_system_top
         .lcd_on(gb_raw_lcd_on),
         .lcd_vsync(gb_raw_lcd_vsync),
 
+        // SGB overlay outputs (applied externally, matching the working
+        // sgb.v structure where this mux crossed a module boundary).
+        .sgb_pal_out_port(gb_sgb_pal_out),
+        .sgb_pal_en_port(gb_sgb_pal_en),
+
         // SGB taps: main-video state only (no videoBypass), see gb.v
         .lcd_clkena_sgb(gb_sgb_lcd_clkena),
         .lcd_data_gb_sgb(gb_sgb_lcd_data_gb),
@@ -560,10 +565,12 @@ module emu_system_top
     wire [1:0]  gb_sgb_lcd_mode;
     wire        gb_sgb_lcd_on;
 
-    // The SGB palette/multitap engine is now merged into gb.v (u_gb). It
-    // applies the SGB palette overlay to gb.v's lcd_data output internally,
-    // gated by the static isSGB enable, so there is no external SGB module,
-    // no overlay mux here, and no per-frame SGB pipeline delay to match.
+    // SGB palette overlay outputs from gb.v (applied here, not inside gb.v,
+    // matching the working sgb.v structure where this combinational path
+    // crossed a module boundary).
+    wire [14:0] gb_sgb_pal_out;
+    wire        gb_sgb_pal_en;
+    wire        use_sgb_pal = sgb_detected & gb_sgb_pal_en;
 
     // Hold the LCD *pixels* black from power-on until the game's first real
     // picture, so the boot ROM frame, any SGB init leftover white, AND
@@ -652,10 +659,12 @@ module emu_system_top
     end
 
     assign gb_lcd_clkena = gb_raw_lcd_clkena;
-    // Drive black until boot_done (boot ROM frame + any init blank stay hidden).
-    // gb_raw_lcd_data is gb.v's lcd_data output, which already carries the SGB
-    // palette overlay (applied inside gb.v when isSGB & sgb_pal_en).
-    assign gb_lcd_data   = boot_done ? gb_raw_lcd_data : 15'h0000;
+    // Drive black until boot_done; apply the SGB palette overlay externally
+    // (matching the working sgb.v structure where this mux was outside gb.v).
+    // The frame_nonuniform check above compares gb_raw_lcd_data (raw video,
+    // no overlay) — identical to the 1.0 build.
+    assign gb_lcd_data   = boot_done ? (use_sgb_pal ? gb_sgb_pal_out : gb_raw_lcd_data)
+                                     : 15'h0000;
     assign gb_lcd_mode   = gb_raw_lcd_mode;
     assign gb_lcd_on     = gb_raw_lcd_on;
     assign gb_lcd_vsync  = gb_raw_lcd_vsync;

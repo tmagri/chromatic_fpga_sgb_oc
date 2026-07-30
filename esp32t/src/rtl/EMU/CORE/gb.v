@@ -88,13 +88,20 @@ module gb (
 
     // lcd interface
     output reg lcd_clkena,
-    output [14:0] lcd_data,   // final LCD colour (SGB palette overlay applied when isSGB & sgb_pal_en)
+    output reg [14:0] lcd_data,   // raw LCD colour (registered). SGB overlay applied externally.
     output reg [1:0] lcd_data_gb,
     output reg [7:0] lcd_pix_x,   // screen x (0-159) of lcd_data_gb pixel, in lockstep (for SGB)
     output reg [7:0] lcd_pix_y,   // screen y (0-143) of lcd_data_gb pixel, in lockstep (for SGB)
     output reg [1:0] lcd_mode,
     output reg lcd_on,
     output reg lcd_vsync,
+    // SGB overlay outputs: the combinational palette lookup crosses a module
+    // boundary (gb.v -> emu_system_top) exactly like the working sgb.v did.
+    // Keeping it OUT of gb.v prevents the 720-bit attr_file variable-read mux
+    // from being buried inside the already-large gb.v, which failed timing on
+    // this utilisation-limited FPGA and corrupted SGB palettes.
+    output [14:0] sgb_pal_out_port,
+    output        sgb_pal_en_port,
 
     // SGB taps: main-video LCD state only, never videoBypass outputs.
     // The bypass free-runs while the game's LCD is off (and during the
@@ -881,9 +888,6 @@ wire [7:0] lcd_pix_y_int;
 wire [1:0] lcd_mode_int;
 wire lcd_vsync_int;
 
-// Registered core LCD colour, before the SGB palette overlay (see lcd_data assign below).
-reg  [14:0] lcd_data_core;
-
 wire lcd_clkena_off;
 wire [14:0] lcd_data_off;
 wire [1:0] lcd_mode_off;
@@ -902,7 +906,7 @@ begin
    end else if(ce) begin
       if (lcd_on_int && ~lcd_off_overwrite) begin
          lcd_clkena <= lcd_clkena_int;
-         lcd_data_core <= lcd_data_int;
+         lcd_data   <= lcd_data_int;
          lcd_data_gb <= lcd_data_gb_int;
          lcd_pix_x  <= lcd_pix_x_int;
          lcd_pix_y  <= lcd_pix_y_int;
@@ -913,12 +917,12 @@ begin
             if (lcd_vsync_int) begin
                lcd_blankwait <= 1'b0;
             end
-            lcd_data_core <= lcd_data_off;
+            lcd_data   <= lcd_data_off;
             lcd_data_gb <= 2'b00;
          end
       end else begin
          lcd_clkena <= lcd_clkena_off;
-         lcd_data_core <= lcd_data_off;
+         lcd_data   <= lcd_data_off;
          lcd_data_gb <= 2'b00;
          lcd_mode <= lcd_mode_off;
          lcd_on <= lcd_on_off;
@@ -930,12 +934,8 @@ begin
    end
 end
 
-// SGB palette overlay (merged from sgb.v): when an SGB game's palette is
-// active, replace the core LCD colour with the combinational SGB palette
-// lookup (keyed on lcd_pix_x/y and the 2-bit lcd_data_gb index). Otherwise
-// pass the registered core colour straight through. sgb_pal_out / sgb_pal_en
-// are produced by the SGB engine inlined at the bottom of this module.
-assign lcd_data = (isSGB & sgb_pal_en) ? sgb_pal_out : lcd_data_core;
+// SGB overlay outputs — applied externally in emu_system_top, matching the
+// working sgb.v structure where the overlay mux crossed a module boundary.
 
 // Palette-ready for the boot blackout: output_sgb_pal qualified by the
 // last LCD power-on. Raw output_sgb_pal arms too early -- the game's SGB
@@ -2268,7 +2268,7 @@ always @(posedge clk_sys) begin
 		end
 
 		pal_no <= attr_file[tile_number*2 +: 2];
-		lcd_data_r <= lcd_data_core;
+		lcd_data_r <= lcd_data;
 		lcd_data_gb_r <= lcd_data_gb_sgb;
 		lcd_clkena_r <= lcd_clkena_sgb;
 		lcd_mode_r <= lcd_mode_sgb;
@@ -2309,5 +2309,11 @@ wire [14:0] _pal_raw = (mask_en_r == 2'd2) ? 15'd0 :
                        (!lcd_data_gb || mask_en_r == 2'd3) ? palette[0][14:0] :
                        palette[pal_no_comb][lcd_data_gb*15 +: 15];
 assign sgb_pal_out = _pal_raw;
+
+// Expose the overlay outputs for external application (emu_system_top),
+// matching the working sgb.v structure where this mux crossed a module
+// boundary instead of being buried inside gb.v.
+assign sgb_pal_out_port = sgb_pal_out;
+assign sgb_pal_en_port  = sgb_pal_en;
 
 endmodule
