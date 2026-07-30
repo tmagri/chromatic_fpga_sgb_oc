@@ -262,11 +262,19 @@ module emu_system_top
     // here; colour returns on the next clean boot).
     // Cart removal also clears the flag via CART_DET -> memrst -> reset_n.
     // ----------------------------------------------------------------
-    reg sgb_detected;   // per-session: 1 = the cart that booted this session is SGB
+    reg sgb_detected;   // sticky: 1 = an SGB game booted this power session
     wire sgb_pal_ready; // SGB engine has a live palette (boot blackout gate)
+    wire sgb_trn_active; // SGB transfer (PAL_TRN etc.) in progress
 
+    // Sticky across gbreset on purpose: the EverDrive resumes games with a
+    // no-reset jump, so the resumed game must keep its engine. The EDGB OS
+    // header is CGB-flagged ($0143=$80, title "GBXOS"), so the OS boot
+    // itself never latches the flag -- the OS menu simply runs with the
+    // engine armed (as it would on real SGB hardware), and the boot
+    // blackout logic below handles the stale OS palette at resume.
+    // Cleared only on reset_n (cart removal / PLL unlock / power).
     always @(posedge hclk or negedge reset_n) begin
-        if (~reset_n | gbreset)
+        if (~reset_n)
             sgb_detected <= 1'b0;
         else if (isSGB_game && !isGBC_game)
             sgb_detected <= 1'b1;   // latch when the header is snooped during boot
@@ -509,6 +517,7 @@ module emu_system_top
         .savestate_number(2'd0),
         .sleep_savestate(sleep_savestate),
         .sgb_pal_ready(sgb_pal_ready),
+        .sgb_trn_active(sgb_trn_active),
 
         .SaveStateExt_Din(), 
         .SaveStateExt_Adr(), 
@@ -584,6 +593,7 @@ module emu_system_top
     reg        frame_nonuniform;
     reg [1:0]  nonuniform_frames;
     reg [7:0]  frames_since_unmap;
+    reg [3:0]  pal_ready_dly;
     reg        gb_vsync_d;
     always @(posedge hclk) begin
         gb_vsync_d            <= gb_raw_lcd_vsync;
@@ -596,6 +606,7 @@ module emu_system_top
             boot_done          <= 1'b0;
             nonuniform_frames  <= 2'd0;
             frames_since_unmap <= 8'd0;
+            pal_ready_dly      <= 4'd0;
             frame_started      <= 1'b0;
             frame_nonuniform   <= 1'b0;
         end else if (~boot_done) begin
@@ -609,14 +620,21 @@ module emu_system_top
                         nonuniform_frames <= 2'd0;
                     if (frames_since_unmap < 8'd250)
                         frames_since_unmap <= frames_since_unmap + 8'd1;
-                    // SGB games also wait for the engine's first palette of
-                    // the current LCD session (sgb_pal_ready): masks the
-                    // monochrome boot phase and the PAL_TRN palette-grid
-                    // frames (a real SGB hides those with MASK_EN freeze,
-                    // unreproduced here). 240f (~4 s) timeout covers very
-                    // late-palette intros (Kirby Block Ball, Pokemon); 60f
-                    // for everything else.
-                    if ((nonuniform_frames >= 2'd2 && (~sgb_detected | sgb_pal_ready))
+                    // SGB release gate: the palette must be live AND stable
+                    // for 8 frames with no TRN capture in progress. Releasing
+                    // on the first palette write let glitch through -- PAL_TRN
+                    // displays the palette grid on screen, and early detection
+                    // packets can latch palettes before the real setup. A real
+                    // SGB hides all of it with the MASK_EN freeze, which the
+                    // merged engine doesn't reproduce, so the blackout stands
+                    // in. 240f (~4 s) timeout covers very late-palette intros
+                    // (Kirby Block Ball, Pokemon); 60f for non-SGB.
+                    if (sgb_pal_ready & ~sgb_trn_active) begin
+                        if (pal_ready_dly < 4'd8)
+                            pal_ready_dly <= pal_ready_dly + 4'd1;
+                    end else
+                        pal_ready_dly <= 4'd0;
+                    if ((nonuniform_frames >= 2'd2 && (~sgb_detected | (pal_ready_dly >= 4'd8)))
                             || (frames_since_unmap >= (sgb_detected ? 8'd240 : 8'd60) && lcd_on_int))
                         boot_done <= 1'b1;
                 end

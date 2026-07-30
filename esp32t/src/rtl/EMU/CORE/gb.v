@@ -140,6 +140,10 @@ module gb (
     // SGB engine has a live palette (output_sgb_pal). emu_system_top holds
     // the boot blackout until this for SGB boots (hides PAL_TRN grid etc.).
     output       sgb_pal_ready,
+    // SGB frame-scanner transfer (PAL_TRN/ATTR_TRN/CHR_TRN) active: the
+    // screen shows the transfer content (e.g. the palette grid) -- the
+    // boot blackout must not release during it.
+    output       sgb_trn_active,
 
     output [63:0] SaveStateExt_Din, 
     output [9:0]  SaveStateExt_Adr, 
@@ -950,6 +954,7 @@ always @(posedge clk_sys) begin
         pal_ready_since_on <= 1'b1;
 end
 assign sgb_pal_ready = pal_ready_since_on;
+assign sgb_trn_active = trn_en;
 
 // SGB taps: mirror of the output stage above, but sourced from the main
 // video path only. Never muxes in videoBypass, so sgb.v sees a clean
@@ -1637,7 +1642,12 @@ always @(posedge clk_sys) begin
 		attr_div_set <= 0;
 		attr_chr_set <= 0;
 
-		if (pal_cancel_mask | attr_cancel_mask | sgb_lcd_off_edge) mask_en <= 0;
+		// mask_en intentionally NOT cleared on LCD power-off: games (e.g.
+		// Game & Watch Gallery) set MASK_EN around screen loads and toggle
+		// the LCD inside that window; clearing the mask on LCD-off exposed
+		// the mid-load frames as per-screen glitches. Real hardware (and
+		// v1.0.0) hold the mask until the game cancels it.
+		if (pal_cancel_mask | attr_cancel_mask) mask_en <= 0;
 
 		if (byte_done) begin
 			byte_done <= 0;
@@ -1823,10 +1833,16 @@ always @(posedge clk_sys) begin
 	if (reset_ss) begin
 		joypad_id <= 0;
 	end else if (ce) begin
-		joypad_id <= (joypad_id & mlt_ctrl);
-		if (isSGB & ~old_p15 & p15) begin
+		// Player-id cycling only while a multi-player mode is active
+		// (MLT_REQ != 0), matching the SGB ICD2: with MLT_REQ=0 both-high
+		// reads must always return $F. The unconditional increment let
+		// joypad_id flicker to 1 for one cycle on every P15 rising edge,
+		// so an SGB-detection read could see $E and the game fell back to
+		// non-SGB greyscale (Game & Watch Gallery).
+		if (isSGB & ~old_p15 & p15 & (mlt_ctrl != 2'd0))
 			joypad_id <= (joypad_id + 1'b1);
-		end
+		else
+			joypad_id <= (joypad_id & mlt_ctrl);
 	end
 end
 
@@ -1939,14 +1955,13 @@ reg pal_set_wait, pal_set_busy, pal_wr, pal_cancel_mask, pal_clear;
 reg [3:0] pal_set_cnt, pal_set_cnt_r;
 reg output_sgb_pal;
 
-// EverDrive OS palette-bleed fix: the EDGB OS header reads as SGB-flagged,
-// so the engine is live during the OS session and latches the OS's own menu
-// palette (output_sgb_pal=1, the "reddish tinge"). SGB games toggle the LCD
-// in their init and on screen changes, re-sending palettes there -- so drop
-// the overlay enable and the screen mask on lcd_on falling: the OS palette
-// is discarded at the game's first LCD-off, and the game's own packets
-// re-arm the overlay. No effect on steady gameplay (no LCD toggle = no
-// clear; games that restyle per screen restyle after the toggle anyway).
+// LCD power-off edge, used to (a) drop a stuck screen mask -- MASK_EN is
+// only ever transient around transfers, so clearing it on LCD-off cannot
+// break a game -- and (b) re-arm the boot-blackout palette gate
+// (pal_ready_since_on, below). NOTE: output_sgb_pal itself is deliberately
+// NOT cleared here: games (e.g. Pokemon) set a screen's palette and then
+// toggle the LCD to display it, so clearing the overlay on LCD-off left
+// title screens monochrome until the palette was re-sent elsewhere.
 reg  sgb_lcd_on_prev = 1'b1;
 wire sgb_lcd_off_edge = sgb_lcd_on_prev & ~lcd_on_sgb;
 always @(posedge clk_sys) if (ce) sgb_lcd_on_prev <= lcd_on_sgb;
@@ -1959,8 +1974,6 @@ always @(posedge clk_sys) begin
 		pal_clear <= 1'b1;
 		pal_set_cnt <= 0;
 	end else if (ce) begin
-
-		if (sgb_lcd_off_edge) output_sgb_pal <= 0;
 
 		pal_cancel_mask <= 0;
 		pal_wr <= 0;
