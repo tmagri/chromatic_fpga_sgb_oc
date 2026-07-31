@@ -241,26 +241,18 @@ module emu_system_top
     // SGB commands in a single pass. The core only needs a static
     // enable for the SGB palette/multitap engine now merged into gb.v.
     //
-    // sgb_detected is PER-SESSION: cleared on gbreset, set when the
-    // running cart's header is snooped as SGB during the boot ROM. This
-    // matches the official ModRetro firmware and the stable pre-native
-    // behaviour, which cleared SGB detection on every cart /RST. It
-    // must NOT be sticky across resets: with isSGB held high, the
-    // merged SGB packet receiver acts on P14/P15 edges from ANY
-    // software, including the EverDrive OS's and ordinary games'
-    // joypad polling. Polling that leaves P1=$30 between reads shifts
-    // one garbage bit per frame with no packet_end, and within ~2 s
-    // completes a zero-filled packet whose cmd=0 decodes as PAL01 --
-    // the engine then latches output_sgb_pal with an all-black palette
-    // and corrupts the display of whatever is running. That is the
-    // "glitchy sprites, crash, restart" failure seen on ALL game types
-    // once any SGB title had been booted in the session (an earlier
-    // revision made the flag sticky to keep the engine alive across an
-    // EverDrive no-reset save-state resume; the cost was this
-    // corruption, and the stable firmware resumed SGB games with the
-    // engine off -- monochrome -- which is the behaviour restored
-    // here; colour returns on the next clean boot).
-    // Cart removal also clears the flag via CART_DET -> memrst -> reset_n.
+    // sgb_detected is PER-SESSION: set when the running cart's header is
+    // snooped as SGB during the boot ROM, and cleared only on reset_n (cart
+    // removal / PLL unlock / power). It is deliberately STICKY across
+    // gbreset so the EverDrive can resume an SGB game with a no-reset jump
+    // and keep the SGB engine alive (see below). The garbage-packet risk
+    // from non-SGB software's joypad polling is handled by the idle
+    // watchdog inside gb.v, which aborts any partial packet before a
+    // 128-bit garbage frame can assemble.
+    // The boot-blackout logic does NOT use sgb_detected directly -- it uses
+    // boot_sgb (declared below) which IS cleared on gbreset, so the
+    // EverDrive OS menu after an SGB exit gets the fast non-SGB path.
+    // Cart removal clears both flags via CART_DET -> memrst -> reset_n.
     // ----------------------------------------------------------------
     reg sgb_detected;   // sticky: 1 = an SGB game booted this power session
     wire sgb_pal_ready; // SGB engine has a live palette (boot blackout gate)
@@ -594,6 +586,7 @@ module emu_system_top
     // phase plus the PAL_TRN colour-grid frames -- stays hidden until the
     // SGB palette is live, like the MASK_EN freeze on real hardware.
     reg        boot_done;
+    reg        boot_sgb;        // SGB flag for THIS boot only (cleared on gbreset)
     reg        prev_boot_rom_enabled;
     reg [14:0] frame_ref;
     reg        frame_started;
@@ -602,6 +595,23 @@ module emu_system_top
     reg [7:0]  frames_since_unmap;
     reg [3:0]  pal_ready_dly;
     reg        gb_vsync_d;
+
+    // boot_sgb: SGB status for the CURRENT boot only. Unlike sgb_detected
+    // (which is deliberately sticky across gbreset so EverDrive no-reset
+    // resume keeps the SGB engine alive), boot_sgb clears on every reset.
+    // This lets the EverDrive OS menu (CGB-flagged, non-SGB header) use
+    // the fast non-SGB blackout path even after an SGB game was played in
+    // the same session — without it, sgb_detected is still 1 when the OS
+    // boots and the menu sits black for the full ~4 s SGB palette-gated
+    // timeout. GB/GBC games likewise get the fast path regardless of prior
+    // session state.
+    always @(posedge hclk) begin
+        if (gbreset_ungated || gbreset || (~prev_boot_rom_enabled && boot_rom_enabled))
+            boot_sgb <= 1'b0;
+        else if (isSGB_game && !isGBC_game)
+            boot_sgb <= 1'b1;
+    end
+
     always @(posedge hclk) begin
         gb_vsync_d            <= gb_raw_lcd_vsync;
         prev_boot_rom_enabled <= boot_rom_enabled;
@@ -636,13 +646,15 @@ module emu_system_top
                     // merged engine doesn't reproduce, so the blackout stands
                     // in. 240f (~4 s) timeout covers very late-palette intros
                     // (Kirby Block Ball, Pokemon); 60f for non-SGB.
+                    // Uses boot_sgb (per-boot, not sticky) so the EverDrive OS
+                    // menu after an SGB exit gets the fast 60f path.
                     if (sgb_pal_ready & ~sgb_trn_active) begin
                         if (pal_ready_dly < 4'd8)
                             pal_ready_dly <= pal_ready_dly + 4'd1;
                     end else
                         pal_ready_dly <= 4'd0;
-                    if ((nonuniform_frames >= 2'd2 && (~sgb_detected | (pal_ready_dly >= 4'd8)))
-                            || (frames_since_unmap >= (sgb_detected ? 8'd240 : 8'd60) && lcd_on_int))
+                    if ((nonuniform_frames >= 2'd2 && (~boot_sgb | (pal_ready_dly >= 4'd8)))
+                            || (frames_since_unmap >= (boot_sgb ? 8'd240 : 8'd60) && lcd_on_int))
                         boot_done <= 1'b1;
                 end
                 frame_started    <= 1'b0;
