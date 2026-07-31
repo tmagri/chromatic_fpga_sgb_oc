@@ -1534,7 +1534,7 @@ wire p14 = joy_p54[0];
 wire p15 = joy_p54[1];
 
 reg old_p15, old_p14;
-reg [11:0] pkt_idle_cnt;       // SGB packet idle watchdog: ce ticks since last P14/P15 edge
+reg [15:0] pkt_idle_cnt;      // SGB packet idle watchdog: ce ticks since last P14/P15 edge
 reg [7:0] data;
 reg [3:0] byte_cnt;
 reg [2:0] cnt, packet_cnt;
@@ -1615,14 +1615,30 @@ always @(posedge clk_sys) begin
 			end
 
 			// Idle watchdog: legitimate packet bits arrive a few us apart (each
-			// P14/P15 write is a full instruction), so ~1 ms (4096 ce) without
+			// P14/P15 write is a full instruction), so a long stretch without
 			// any edge can only mean the receiver is stuck on a partial packet.
 			// Drop the partial packet instead of leaving it armed -- without
 			// this, one garbage byte stream could latch mask_en (black screen)
 			// with no recovery short of a clean cancel packet or hard reset.
+			//
+			// Timeout = 65536 ce (~15.6 ms in DMG mode). This MUST exceed the
+			// longest legitimate gap *inside* a packet, which is a VBlank
+			// interrupt landing mid-transfer: SendSGBPacket runs with interrupts
+			// enabled, so the VBlank handler (AutoBgMapTransfer, OAM DMA,
+			// PrepareOAMData, Audio_UpdateMusic, Music_DoLowHealthAlarm, ...)
+			// freezes JOYP for its full duration. Pokemon Red's battle VBlank
+			// with music + the low-HP alarm routinely hits 4000-5000 cycles and
+			// spikes higher; the previous 12-bit/4096-cycle (~977 us) limit was
+			// shorter than that and aborted in-flight PAL_SET/ATTR_BLK packets,
+			// corrupting the SGB palette (white->green backdrop flashes).
+			// 65536 ce still clears well before the ~2 s it takes joypad-polling
+			// garbage to assemble a full packet, and aborting during the ~70 000
+			// cycle Wait7000 inter-packet gap is a no-op (packet_end is already
+			// set and the counters are already cleared by the reset pulse of the
+			// next packet).
 			if ((old_p15 != p15) | (old_p14 != p14))
 				pkt_idle_cnt <= 0;
-			else if (pkt_idle_cnt != 12'hFFF)
+			else if (pkt_idle_cnt != 16'hFFFF)
 				pkt_idle_cnt <= pkt_idle_cnt + 1'b1;
 
 			if (&pkt_idle_cnt) begin
