@@ -1984,10 +1984,13 @@ always @(posedge clk_sys) if (ce) sgb_lcd_on_prev <= lcd_on_sgb;
 
 always @(posedge clk_sys) begin
 	if (reset_ss) begin
-		output_sgb_pal <= 0;
+		// Preserve output_sgb_pal and palette[] across gbreset so the
+		// EverDrive can resume / load-state without losing the game's SGB
+		// palette. Matches sgb_detected's deliberate stickiness. Gowin
+		// regs init to 0 on power-on, and the game's PAL_SET overwrites
+		// on boot, so pal_clear is not needed here.
 		pal_set_busy <= 0;
 		pal_set_wait <= 0;
-		pal_clear <= 1'b1;
 		pal_set_cnt <= 0;
 	end else if (ce) begin
 

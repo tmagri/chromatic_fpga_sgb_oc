@@ -199,6 +199,8 @@ module emu_system_top
     always@(posedge hclk)
         ce_2x_r1 <= ce_2x;
 
+    reg boot_sgb; // Moved up from below
+
     always@(posedge hclk or negedge reset_n)
     begin
         if(~reset_n)
@@ -210,6 +212,7 @@ module emu_system_top
         begin
             CART_RST_r1 <= CART_RST;
             CART_RST_r2 <= CART_RST_r1;
+
             // No debounce -- identical to the official ModRetro firmware
             // (v18.8). The spurious in-game resets a debounce was added for
             // come from CART_DET glitches, and are handled at the source by
@@ -562,7 +565,6 @@ module emu_system_top
     // crossed a module boundary).
     wire [14:0] gb_sgb_pal_out;
     wire        gb_sgb_pal_en;
-    wire        use_sgb_pal = sgb_detected & gb_sgb_pal_en;
 
     // Hold the LCD *pixels* black from power-on until the game's first real
     // picture, so the boot ROM frame, any SGB init leftover white, AND
@@ -586,7 +588,6 @@ module emu_system_top
     // phase plus the PAL_TRN colour-grid frames -- stays hidden until the
     // SGB palette is live, like the MASK_EN freeze on real hardware.
     reg        boot_done;
-    reg        boot_sgb;        // SGB flag for THIS boot only (cleared on gbreset)
     reg        prev_boot_rom_enabled;
     reg [14:0] frame_ref;
     reg        frame_started;
@@ -675,6 +676,7 @@ module emu_system_top
     // (matching the working sgb.v structure where this mux was outside gb.v).
     // The frame_nonuniform check above compares gb_raw_lcd_data (raw video,
     // no overlay) — identical to the 1.0 build.
+    wire        use_sgb_pal = boot_sgb & gb_sgb_pal_en;  // boot_sgb (per-boot) prevents stale/garbage SGB palette during non-SGB boots
     assign gb_lcd_data   = boot_done ? (use_sgb_pal ? gb_sgb_pal_out : gb_raw_lcd_data)
                                      : 15'h0000;
     assign gb_lcd_mode   = gb_raw_lcd_mode;
