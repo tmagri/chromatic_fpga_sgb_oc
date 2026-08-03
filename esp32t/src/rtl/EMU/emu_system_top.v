@@ -402,6 +402,36 @@ module emu_system_top
                       (cart_sgb_flag == 8'h03) && (cart_old_lic == 8'h33);
     assign isSGB_out = sgb_detected;
 
+    // ----------------------------------------------------------------
+    // Internal GB LCD raw wires (before SGB palette processing)
+    // Declared BEFORE the u_gb instance below: in SystemVerilog mode Gowin
+    // implicitly declares a net at first use, and first use wins (EX3638).
+    // Declaring after the instance worked for these bare-identifier
+    // connections so far, but it is the exact pattern that silently killed
+    // sgb_snd in gb.v (expression connections bind the implicit net); keep
+    // all u_gb interconnect declared before the instance.
+    // ----------------------------------------------------------------
+    wire        gb_raw_lcd_clkena;
+    wire [14:0] gb_raw_lcd_data;
+    wire [1:0]  gb_raw_lcd_data_gb;  // 2-bit DMG pixel indices for SGB
+    wire [7:0]  gb_raw_lcd_pix_x;    // screen x of the lcd_data_gb pixel (in lockstep)
+    wire [7:0]  gb_raw_lcd_pix_y;    // screen y of the lcd_data_gb pixel (in lockstep)
+    wire [1:0]  gb_raw_lcd_mode;
+    wire        gb_raw_lcd_on;
+    wire        gb_raw_lcd_vsync;
+
+    // Main-video LCD taps for the SGB module (never videoBypass outputs)
+    wire        gb_sgb_lcd_clkena;
+    wire [1:0]  gb_sgb_lcd_data_gb;
+    wire [1:0]  gb_sgb_lcd_mode;
+    wire        gb_sgb_lcd_on;
+
+    // SGB palette overlay outputs from gb.v (applied here, not inside gb.v,
+    // matching the working sgb.v structure where this combinational path
+    // crossed a module boundary).
+    wire [14:0] gb_sgb_pal_out;
+    wire        gb_sgb_pal_en;
+
     gb u_gb(
         .reset(gbreset),
 
@@ -541,30 +571,6 @@ module emu_system_top
         .rewind_on(1'd0),
         .rewind_active(1'd0)
     );
-
-    // ----------------------------------------------------------------
-    // Internal GB LCD raw wires (before SGB palette processing)
-    // ----------------------------------------------------------------
-    wire        gb_raw_lcd_clkena;
-    wire [14:0] gb_raw_lcd_data;
-    wire [1:0]  gb_raw_lcd_data_gb;  // 2-bit DMG pixel indices for SGB
-    wire [7:0]  gb_raw_lcd_pix_x;    // screen x of the lcd_data_gb pixel (in lockstep)
-    wire [7:0]  gb_raw_lcd_pix_y;    // screen y of the lcd_data_gb pixel (in lockstep)
-    wire [1:0]  gb_raw_lcd_mode;
-    wire        gb_raw_lcd_on;
-    wire        gb_raw_lcd_vsync;
-
-    // Main-video LCD taps for the SGB module (never videoBypass outputs)
-    wire        gb_sgb_lcd_clkena;
-    wire [1:0]  gb_sgb_lcd_data_gb;
-    wire [1:0]  gb_sgb_lcd_mode;
-    wire        gb_sgb_lcd_on;
-
-    // SGB palette overlay outputs from gb.v (applied here, not inside gb.v,
-    // matching the working sgb.v structure where this combinational path
-    // crossed a module boundary).
-    wire [14:0] gb_sgb_pal_out;
-    wire        gb_sgb_pal_en;
 
     // Hold the LCD *pixels* black from power-on until the game's first real
     // picture, so the boot ROM frame, any SGB init leftover white, AND

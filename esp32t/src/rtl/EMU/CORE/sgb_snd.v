@@ -9,10 +9,10 @@
 //   * 64-bit blkdata register + variable nibble-select mux REMOVED -- the 8
 //     data bytes of each BRR block are re-read from the cache on demand. The
 //     cache read-port is idle during playback, and at 11025 Hz there are
-//     ~3000 clk_sys of slack per sample, so the BSRAM latency is hidden by
+//     ~1500 clk_sys of slack per sample, so the BSRAM latency is hidden by
 //     presenting the read address combinationally.
-//   * 32-bit phase accumulator -> 12-bit /3043 down-counter (11024.8 Hz,
-//     +0.0017% pitch error vs the exact 11025 Hz -- inaudible).
+//   * 32-bit phase accumulator -> 12-bit /1522 down-counter (11023.1 Hz,
+//     -0.017% pitch error vs the exact 11025 Hz -- inaudible).
 //   * 8-state FSM -> 4-state (IDLE/HDR/HDR2/PLAY); read address is a pure
 //     combinational function of (state, block_ptr, nib_i), removing the
 //     rd_addr register entirely.
@@ -51,7 +51,10 @@ module sgb_snd (
 );
 
     localparam [11:0] SAMPLE_BASE = 12'h816;       // Pauline-help BRR start
-    localparam [11:0] TICK_PERIOD = 12'd3042;      // ceil(33.554432MHz/11025)-1
+    // chromatic port: clk_sys here is hclk = 16.777216 MHz, NOT the 33.554432
+    // MHz the upstream module was written for (TICK_PERIOD 3042 would play the
+    // sample at half speed, one octave down). Period = TICK_PERIOD+1 ticks.
+    localparam [11:0] TICK_PERIOD = 12'd1521;      // ceil(16.777216MHz/11025)-1
 
     localparam [1:0] S_IDLE = 2'd0,
                      S_HDR  = 2'd1,   // present header addr; BSRAM 1-cycle settle
@@ -78,6 +81,22 @@ module sgb_snd (
     wire [11:0] rd_addr = (state == S_PLAY) ? block_ptr + 12'd1 + {7'd0, nib_i[3:1]}
                                             : block_ptr;
 
+    // Register the VRAM snoop inputs: decouples the 4 KB BSRAM write-port
+    // load from the hot vram_addr/vram_di/vram_wren nets (which also drive
+    // both VRAM banks and the HDMA mux, adjacent to the hclk critical
+    // paths). One cycle of write latency is invisible: the SOU_TRN strobe
+    // that freezes the cache arrives a full bit-banged JOYP packet
+    // (milliseconds) after the last payload write.
+    reg        sp_ce_r = 1'b0, sp_wren_r = 1'b0;
+    reg [11:0] sp_addr_r = 12'd0;
+    reg [7:0]  sp_data_r = 8'd0;
+    always @(posedge clk_sys) begin
+        sp_ce_r   <= sp_ce;
+        sp_wren_r <= sp_wren;
+        sp_addr_r <= sp_addr;
+        sp_data_r <= sp_data;
+    end
+
     // 4 KB x8 simple-dual-port sample cache: one synchronous write port
     // (snoops VRAM writes until the sample is resident) + one synchronous
     // read port (decode). Written as an explicit SDP pattern so Gowin infers
@@ -87,8 +106,8 @@ module sgb_snd (
     reg [7:0] cmem [0:4095];
     reg [7:0] rd_byte;
     always @(posedge clk_sys) begin
-        if (sp_ce & sp_wren & ~sample_ready)
-            cmem[sp_addr] <= sp_data;
+        if (sp_ce_r & sp_wren_r & ~sample_ready)
+            cmem[sp_addr_r] <= sp_data_r;
         rd_byte <= cmem[rd_addr];
     end
 

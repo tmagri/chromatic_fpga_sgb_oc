@@ -654,45 +654,6 @@ gbc_snd audio (
   .SaveStateBus_Dout (SaveStateBus_wired_or[5])
 );
 
-// --------------------- SGB BRR custom audio (HLE) -------------------
-// sgb_snd snoops VRAM writes into a 4 KB rolling cache (frozen once the
-// SOU_TRN payload is resident) and decodes the uploaded SNES BRR sample
-// when a SOUND packet triggers it. See sgb_snd.v (COMPRESSED port for
-// GW5A) and the upstream Gameboy_MiSTer/rtl/sgb_snd.v for the DKGB layout.
-// NOTE: these four regs MUST be declared here (before the sgb_snd instance
-// below) -- the instance is what first references them, so a later reg
-// declaration would let Gowin implicitly create them as wires and conflict
-// with the procedural assignments in the packet-engine always block.
-reg       sgb_snd_trig = 1'b0;
-reg [7:0] sgb_snd_id = 8'd0;
-reg [7:0] sgb_snd_z = 8'd0;
-reg       sgb_sou_trn_valid = 1'b0;
-wire [15:0] sgb_pcm;
-sgb_snd sgb_snd_inst (
-    .clk_sys       ( clk_sys           ),
-    .reset         ( reset_ss          ),
-    .sgb_en        ( isSGB             ),
-    .snd_trig      ( sgb_snd_trig      ),
-    .snd_id        ( sgb_snd_id        ),
-    .snd_z         ( sgb_snd_z         ),
-    .sou_trn_valid ( sgb_sou_trn_valid ),
-    .sp_ce         ( ce_cpu & isSGB    ),
-    .sp_wren       ( vram_wren & isSGB ),
-    .sp_addr       ( vram_addr[11:0]   ),
-    .sp_data       ( vram_di           ),
-    .pcm_out       ( sgb_pcm           )
-);
-
-// Attenuate SGB PCM (SNES DSP applies voice+master volume; raw BRR is ~93%
-// full-scale). >>2 = 25% to match typical SGB SFX loudness vs GB APU.
-// Gate the output to 0 when not in SGB mode to prevent audio corruption.
-wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> 2) : 16'd0;
-
-wire [16:0] mix_l = {apu_l[15], apu_l} + {{1{sgb_pcm_att[15]}}, sgb_pcm_att};
-wire [16:0] mix_r = {apu_r[15], apu_r} + {{1{sgb_pcm_att[15]}}, sgb_pcm_att};
-assign audio_l = (mix_l[16] ^ mix_l[15]) ? (mix_l[16] ? 16'h8000 : 16'h7FFF) : mix_l[15:0];
-assign audio_r = (mix_r[16] ^ mix_r[15]) ? (mix_r[16] ? 16'h8000 : 16'h7FFF) : mix_r[15:0];
-
 // --------------------------------------------------------------------
 // -----------------------serial port()--------------------------------
 // --------------------------------------------------------------------
@@ -1128,6 +1089,59 @@ wire vram1_wren = video_rd?1'b0:vram_bank&&((hdma_rd&&isGBC)||cpu_wr_vram);
 
 wire [15:0] hdma_target_addr;
 wire [12:0] vram_addr = video_rd?video_addr:(hdma_rd&&isGBC)?hdma_target_addr[12:0]:(dma_rd&&dma_sel_vram)?dma_addr[12:0]:cpu_addr[12:0];
+
+// --------------------- SGB BRR custom audio (HLE) -------------------
+// sgb_snd snoops VRAM writes into a 4 KB rolling cache (frozen once the
+// SOU_TRN payload is resident) and decodes the uploaded SNES BRR sample
+// when a SOUND packet triggers it. See sgb_snd.v (COMPRESSED port for
+// GW5A) and the upstream Gameboy_MiSTer/rtl/sgb_snd.v for the DKGB layout.
+// POSITIONING IS LOAD-BEARING (Gowin SystemVerilog first-use-wins rules):
+//   1. The block sits AFTER the vram_di/vram_wren/vram_addr declarations
+//      above. If the instance were the first use of those names, Gowin
+//      would implicitly declare 1-bit nets here and bind them to the
+//      ports; the sample cache would never be written, pcm_out would
+//      collapse to constant 0 and the whole module would be swept in
+//      optimizing (NL0002) -- the failure mode of the 2026-08-03 build.
+//      Do NOT move this block above the vram declarations.
+//   2. The four trigger regs are declared before the instance (it is what
+//      first references them), so Gowin cannot implicitly create them as
+//      wires and conflict with the procedural assignments in the
+//      packet-engine always block below.
+reg       sgb_snd_trig = 1'b0;
+reg [7:0] sgb_snd_id = 8'd0;
+reg [7:0] sgb_snd_z = 8'd0;
+reg       sgb_sou_trn_valid = 1'b0;
+wire [15:0] sgb_pcm;
+sgb_snd sgb_snd_inst (
+    .clk_sys       ( clk_sys           ),
+    .reset         ( reset_ss          ),
+    .sgb_en        ( isSGB             ),
+    .snd_trig      ( sgb_snd_trig      ),
+    .snd_id        ( sgb_snd_id        ),
+    .snd_mute      ( 1'b0              ),
+    .snd_z         ( sgb_snd_z         ),
+    .sou_trn_valid ( sgb_sou_trn_valid ),
+    .sp_ce         ( ce_cpu & isSGB    ),
+    .sp_wren       ( vram_wren & isSGB ),
+    .sp_addr       ( vram_addr[11:0]   ),
+    .sp_data       ( vram_di           ),
+    .pcm_out       ( sgb_pcm           )
+);
+
+// Attenuate SGB PCM. The HLE decoder emits full-scale SNES-DSP *input*
+// samples; real SGB hardware then multiplies by the SPC700 voice volume
+// and master volume (7-bit each) before the DAC, so raw playback is far
+// too loud. Gate the output to 0 when not in SGB mode to prevent audio
+// corruption.
+// Tuning (total gain vs BRR full scale): 2 = -12dB (too loud on the
+// chromatic codec path), 3 = -18dB, 4 = -24dB, 5 = -30dB.
+localparam [2:0] SGB_PCM_SHIFT = 3'd4;
+wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> SGB_PCM_SHIFT) : 16'd0;
+
+wire [16:0] mix_l = {apu_l[15], apu_l} + {{1{sgb_pcm_att[15]}}, sgb_pcm_att};
+wire [16:0] mix_r = {apu_r[15], apu_r} + {{1{sgb_pcm_att[15]}}, sgb_pcm_att};
+assign audio_l = (mix_l[16] ^ mix_l[15]) ? (mix_l[16] ? 16'h8000 : 16'h7FFF) : mix_l[15:0];
+assign audio_r = (mix_r[16] ^ mix_r[15]) ? (mix_r[16] ? 16'h8000 : 16'h7FFF) : mix_r[15:0];
 
 wire [7:0] Savestate_RAMReadData_VRAM0, Savestate_RAMReadData_VRAM1;
 
