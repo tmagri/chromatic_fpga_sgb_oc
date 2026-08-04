@@ -1,0 +1,586 @@
+{
+ "A01_Nintendo.wav": {
+  "record": 0,
+  "offset": 0,
+  "bytes": 11601,
+  "loop_offset": null,
+  "samples": 20609,
+  "rate": 16000
+ },
+ "A02_GameOver.wav": {
+  "record": 1,
+  "offset": 11616,
+  "bytes": 13221,
+  "loop_offset": null,
+  "samples": 23489,
+  "rate": 16000
+ },
+ "A03_Drop.wav": {
+  "record": 2,
+  "offset": 24848,
+  "bytes": 17001,
+  "loop_offset": null,
+  "samples": 30210,
+  "rate": 16000
+ },
+ "A04_OkA.wav": {
+  "record": 3,
+  "offset": 41856,
+  "bytes": 12321,
+  "loop_offset": null,
+  "samples": 21890,
+  "rate": 16000
+ },
+ "A05_OkB.wav": {
+  "record": 4,
+  "offset": 54192,
+  "bytes": 13221,
+  "loop_offset": null,
+  "samples": 23490,
+  "rate": 16000
+ },
+ "A06_SelectA.wav": {
+  "record": 5,
+  "offset": 67424,
+  "bytes": 11241,
+  "loop_offset": null,
+  "samples": 19969,
+  "rate": 16000
+ },
+ "A07_SelectB.wav": {
+  "record": 6,
+  "offset": 78672,
+  "bytes": 4041,
+  "loop_offset": null,
+  "samples": 7169,
+  "rate": 16000
+ },
+ "A08_SelectC.wav": {
+  "record": 7,
+  "offset": 82720,
+  "bytes": 10521,
+  "loop_offset": null,
+  "samples": 18689,
+  "rate": 16000
+ },
+ "A09_MistakeBuzzer.wav": {
+  "record": 8,
+  "offset": 93248,
+  "bytes": 7101,
+  "loop_offset": null,
+  "samples": 12609,
+  "rate": 16000
+ },
+ "A0A_CatchItem.wav": {
+  "record": 9,
+  "offset": 100352,
+  "bytes": 5301,
+  "loop_offset": null,
+  "samples": 9409,
+  "rate": 16000
+ },
+ "A0B_GateSqueak.wav": {
+  "record": 10,
+  "offset": 105664,
+  "bytes": 5472,
+  "loop_offset": null,
+  "samples": 9728,
+  "rate": 16000
+ },
+ "A0C_ExplosionSmall.wav": {
+  "record": 11,
+  "offset": 111136,
+  "bytes": 20421,
+  "loop_offset": null,
+  "samples": 36291,
+  "rate": 16000
+ },
+ "A0D_ExplosionMedium.wav": {
+  "record": 12,
+  "offset": 131568,
+  "bytes": 45801,
+  "loop_offset": null,
+  "samples": 81415,
+  "rate": 16000
+ },
+ "A0E_ExplosionLarge.wav": {
+  "record": 13,
+  "offset": 177376,
+  "bytes": 54441,
+  "loop_offset": null,
+  "samples": 96775,
+  "rate": 16000
+ },
+ "A0F_AttackedA.wav": {
+  "record": 14,
+  "offset": 231824,
+  "bytes": 7461,
+  "loop_offset": null,
+  "samples": 13249,
+  "rate": 16000
+ },
+ "A10_AttackedB.wav": {
+  "record": 15,
+  "offset": 239296,
+  "bytes": 6201,
+  "loop_offset": null,
+  "samples": 11009,
+  "rate": 16000
+ },
+ "A11_HitPunchA.wav": {
+  "record": 16,
+  "offset": 245504,
+  "bytes": 26541,
+  "loop_offset": null,
+  "samples": 47172,
+  "rate": 16000
+ },
+ "A12_HitPunchB.wav": {
+  "record": 17,
+  "offset": 272048,
+  "bytes": 26721,
+  "loop_offset": null,
+  "samples": 47491,
+  "rate": 16000
+ },
+ "A13_BreathInAir.wav": {
+  "record": 18,
+  "offset": 298784,
+  "bytes": 11421,
+  "loop_offset": null,
+  "samples": 20289,
+  "rate": 16000
+ },
+ "A14_RocketProjectileA.wav": {
+  "record": 19,
+  "offset": 310208,
+  "bytes": 18801,
+  "loop_offset": null,
+  "samples": 33411,
+  "rate": 16000
+ },
+ "A15_RocketProjectileB.wav": {
+  "record": 20,
+  "offset": 329024,
+  "bytes": 18801,
+  "loop_offset": null,
+  "samples": 33411,
+  "rate": 16000
+ },
+ "A16_EscapingBubble.wav": {
+  "record": 21,
+  "offset": 347840,
+  "bytes": 5472,
+  "loop_offset": null,
+  "samples": 9728,
+  "rate": 16000
+ },
+ "A17_Jump.wav": {
+  "record": 22,
+  "offset": 353312,
+  "bytes": 4932,
+  "loop_offset": null,
+  "samples": 8768,
+  "rate": 16000
+ },
+ "A18_FastJump.wav": {
+  "record": 23,
+  "offset": 358256,
+  "bytes": 5121,
+  "loop_offset": null,
+  "samples": 9089,
+  "rate": 16000
+ },
+ "A19_JetTakeoff.wav": {
+  "record": 24,
+  "offset": 363392,
+  "bytes": 43281,
+  "loop_offset": null,
+  "samples": 76933,
+  "rate": 16000
+ },
+ "A1A_JetLanding.wav": {
+  "record": 25,
+  "offset": 406688,
+  "bytes": 27981,
+  "loop_offset": null,
+  "samples": 49732,
+  "rate": 16000
+ },
+ "A1B_CupBreaking.wav": {
+  "record": 26,
+  "offset": 434672,
+  "bytes": 6921,
+  "loop_offset": null,
+  "samples": 12289,
+  "rate": 16000
+ },
+ "A1C_GlassBreaking.wav": {
+  "record": 27,
+  "offset": 441600,
+  "bytes": 14661,
+  "loop_offset": null,
+  "samples": 26050,
+  "rate": 16000
+ },
+ "A1D_LevelUp.wav": {
+  "record": 28,
+  "offset": 456272,
+  "bytes": 11781,
+  "loop_offset": null,
+  "samples": 20930,
+  "rate": 16000
+ },
+ "A1E_InsertAir.wav": {
+  "record": 29,
+  "offset": 468064,
+  "bytes": 4932,
+  "loop_offset": null,
+  "samples": 8768,
+  "rate": 16000
+ },
+ "A1F_SwordSwing.wav": {
+  "record": 30,
+  "offset": 473008,
+  "bytes": 6381,
+  "loop_offset": null,
+  "samples": 11329,
+  "rate": 16000
+ },
+ "A20_WaterFalling.wav": {
+  "record": 31,
+  "offset": 479392,
+  "bytes": 10341,
+  "loop_offset": null,
+  "samples": 18369,
+  "rate": 16000
+ },
+ "A21_Fire.wav": {
+  "record": 32,
+  "offset": 489744,
+  "bytes": 13581,
+  "loop_offset": null,
+  "samples": 24129,
+  "rate": 16000
+ },
+ "A22_WallCollapsing.wav": {
+  "record": 33,
+  "offset": 503328,
+  "bytes": 4941,
+  "loop_offset": null,
+  "samples": 8769,
+  "rate": 16000
+ },
+ "A23_Cancel.wav": {
+  "record": 34,
+  "offset": 508272,
+  "bytes": 11241,
+  "loop_offset": null,
+  "samples": 19969,
+  "rate": 16000
+ },
+ "A24_Walking.wav": {
+  "record": 35,
+  "offset": 519520,
+  "bytes": 4392,
+  "loop_offset": null,
+  "samples": 7808,
+  "rate": 16000
+ },
+ "A25_BlockingStrike.wav": {
+  "record": 36,
+  "offset": 523920,
+  "bytes": 4212,
+  "loop_offset": null,
+  "samples": 7488,
+  "rate": 16000
+ },
+ "A26_PictureFloats.wav": {
+  "record": 37,
+  "offset": 528144,
+  "bytes": 7641,
+  "loop_offset": null,
+  "samples": 13569,
+  "rate": 16000
+ },
+ "A27_FadeIn.wav": {
+  "record": 38,
+  "offset": 535792,
+  "bytes": 11061,
+  "loop_offset": null,
+  "samples": 19650,
+  "rate": 16000
+ },
+ "A28_FadeOut.wav": {
+  "record": 39,
+  "offset": 546864,
+  "bytes": 11061,
+  "loop_offset": null,
+  "samples": 19649,
+  "rate": 16000
+ },
+ "A29_WindowOpen.wav": {
+  "record": 40,
+  "offset": 557936,
+  "bytes": 5292,
+  "loop_offset": null,
+  "samples": 9408,
+  "rate": 16000
+ },
+ "A2A_WindowClose.wav": {
+  "record": 41,
+  "offset": 563232,
+  "bytes": 4941,
+  "loop_offset": null,
+  "samples": 8769,
+  "rate": 16000
+ },
+ "A2B_BigLaser.wav": {
+  "record": 42,
+  "offset": 568176,
+  "bytes": 6192,
+  "loop_offset": null,
+  "samples": 11008,
+  "rate": 16000
+ },
+ "A2C_StoneGate.wav": {
+  "record": 43,
+  "offset": 574368,
+  "bytes": 10521,
+  "loop_offset": null,
+  "samples": 18689,
+  "rate": 16000
+ },
+ "A2D_Teleportation.wav": {
+  "record": 44,
+  "offset": 584896,
+  "bytes": 24921,
+  "loop_offset": null,
+  "samples": 44291,
+  "rate": 16000
+ },
+ "A2E_LightningA.wav": {
+  "record": 45,
+  "offset": 609824,
+  "bytes": 54441,
+  "loop_offset": null,
+  "samples": 96776,
+  "rate": 16000
+ },
+ "A2F_EarthquakeA.wav": {
+  "record": 46,
+  "offset": 664272,
+  "bytes": 54441,
+  "loop_offset": null,
+  "samples": 96776,
+  "rate": 16000
+ },
+ "A30_SmallLaser.wav": {
+  "record": 47,
+  "offset": 718720,
+  "bytes": 4941,
+  "loop_offset": null,
+  "samples": 8769,
+  "rate": 16000
+ },
+ "B01_ApplauseSmall.wav": {
+  "record": 48,
+  "offset": 723664,
+  "bytes": 5175,
+  "loop_offset": 837,
+  "samples": 9199,
+  "rate": 16000
+ },
+ "B02_ApplauseMedium.wav": {
+  "record": 49,
+  "offset": 728848,
+  "bytes": 5166,
+  "loop_offset": 828,
+  "samples": 9183,
+  "rate": 16000
+ },
+ "B03_ApplauseLarge.wav": {
+  "record": 50,
+  "offset": 734016,
+  "bytes": 18909,
+  "loop_offset": 2007,
+  "samples": 33616,
+  "rate": 16000
+ },
+ "B04_Wind.wav": {
+  "record": 51,
+  "offset": 752928,
+  "bytes": 10530,
+  "loop_offset": 4302,
+  "samples": 18718,
+  "rate": 16000
+ },
+ "B05_Rain.wav": {
+  "record": 52,
+  "offset": 763472,
+  "bytes": 10881,
+  "loop_offset": 1161,
+  "samples": 19343,
+  "rate": 16000
+ },
+ "B06_Storm.wav": {
+  "record": 53,
+  "offset": 774368,
+  "bytes": 11088,
+  "loop_offset": 1368,
+  "samples": 19711,
+  "rate": 16000
+ },
+ "B07_StormThunder.wav": {
+  "record": 54,
+  "offset": 785456,
+  "bytes": 4059,
+  "loop_offset": 1017,
+  "samples": 7214,
+  "rate": 16000
+ },
+ "B08_LightningB.wav": {
+  "record": 55,
+  "offset": 789520,
+  "bytes": 23796,
+  "loop_offset": 22482,
+  "samples": 42300,
+  "rate": 16000
+ },
+ "B09_EarthquakeB.wav": {
+  "record": 56,
+  "offset": 813328,
+  "bytes": 11133,
+  "loop_offset": 5868,
+  "samples": 19782,
+  "rate": 16000
+ },
+ "B0A_Avalanche.wav": {
+  "record": 57,
+  "offset": 824464,
+  "bytes": 17514,
+  "loop_offset": 6147,
+  "samples": 31129,
+  "rate": 16000
+ },
+ "B0B_Wave.wav": {
+  "record": 58,
+  "offset": 841984,
+  "bytes": 25101,
+  "loop_offset": null,
+  "samples": 44610,
+  "rate": 16000
+ },
+ "B0C_River.wav": {
+  "record": 59,
+  "offset": 867088,
+  "bytes": 12978,
+  "loop_offset": 738,
+  "samples": 23071,
+  "rate": 16000
+ },
+ "B0D_Waterfall.wav": {
+  "record": 60,
+  "offset": 880080,
+  "bytes": 5472,
+  "loop_offset": 3699,
+  "samples": 9715,
+  "rate": 16000
+ },
+ "B0E_SmallCharRunning.wav": {
+  "record": 61,
+  "offset": 885552,
+  "bytes": 15912,
+  "loop_offset": 0,
+  "samples": 28288,
+  "rate": 16000
+ },
+ "B0F_HorseRunning.wav": {
+  "record": 62,
+  "offset": 901472,
+  "bytes": 12357,
+  "loop_offset": 0,
+  "samples": 21964,
+  "rate": 16000
+ },
+ "B10_WarningSound.wav": {
+  "record": 63,
+  "offset": 913840,
+  "bytes": 7821,
+  "loop_offset": null,
+  "samples": 13889,
+  "rate": 16000
+ },
+ "B11_ApproachingCar.wav": {
+  "record": 64,
+  "offset": 921664,
+  "bytes": 5823,
+  "loop_offset": 1422,
+  "samples": 10337,
+  "rate": 16000
+ },
+ "B12_JetFlying.wav": {
+  "record": 65,
+  "offset": 927488,
+  "bytes": 19638,
+  "loop_offset": 5589,
+  "samples": 34897,
+  "rate": 16000
+ },
+ "B13_UfoFlying.wav": {
+  "record": 66,
+  "offset": 947136,
+  "bytes": 2547,
+  "loop_offset": 855,
+  "samples": 4528,
+  "rate": 16000
+ },
+ "B14_ElectromagneticWaves.wav": {
+  "record": 67,
+  "offset": 949696,
+  "bytes": 3123,
+  "loop_offset": 0,
+  "samples": 5539,
+  "rate": 16000
+ },
+ "B15_ScoreUp.wav": {
+  "record": 68,
+  "offset": 952832,
+  "bytes": 8568,
+  "loop_offset": 0,
+  "samples": 15232,
+  "rate": 16000
+ },
+ "B16_FireB.wav": {
+  "record": 69,
+  "offset": 961408,
+  "bytes": 54441,
+  "loop_offset": null,
+  "samples": 96774,
+  "rate": 16000
+ },
+ "B17_CameraShutter.wav": {
+  "record": 70,
+  "offset": 1015856,
+  "bytes": 4392,
+  "loop_offset": null,
+  "samples": 7808,
+  "rate": 16000
+ },
+ "B18_WriteFormanto.wav": {
+  "record": 71,
+  "offset": 1020256,
+  "bytes": 6012,
+  "loop_offset": null,
+  "samples": 10688,
+  "rate": 16000
+ },
+ "B19_ShowUpTitle.wav": {
+  "record": 72,
+  "offset": 1026272,
+  "bytes": 6561,
+  "loop_offset": null,
+  "samples": 11649,
+  "rate": 16000
+ }
+}
