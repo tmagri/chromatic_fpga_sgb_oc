@@ -8,7 +8,7 @@ use IEEE.numeric_std.all;
 
 package pMultiPortPSRAM is
 
-   constant RAMPORTCOUNT : integer := 5;
+   constant RAMPORTCOUNT : integer := 6;
 
    type tRAMIn_request         is array(0 to RAMPORTCOUNT - 1) of std_logic;
    type tRAMIn_RnW             is array(0 to RAMPORTCOUNT - 1) of std_logic;

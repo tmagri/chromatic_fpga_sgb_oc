@@ -83,6 +83,15 @@ module gb (
     output [15:0] audio_l,
     output [15:0] audio_r,
 
+    // SGB built-in SFX bank playback (sgb_sfx_play lives in mem_system_top):
+    // trigger/index/stop out, decoded PCM in for mixing.
+    output        sfx_start,
+    output        sfx_stop,
+    output [2:0]  sfx_index,
+    input signed [15:0] sfx_pcm,
+    input         sfx_pcm_valid,
+    input         sfx_playing,
+
     // Megaduck?
     input megaduck,
 
@@ -1112,6 +1121,49 @@ reg [7:0] sgb_snd_id = 8'd0;
 reg [7:0] sgb_snd_z = 8'd0;
 reg       sgb_sou_trn_valid = 1'b0;
 wire [15:0] sgb_pcm;
+
+// SGB built-in SFX bank trigger (sgb_sfx_play in mem_system_top). The SOUND
+// packet's SFX-A (byte 1) and SFX-B (byte 2) numbers are mapped onto the
+// trimmed bank's 7 effects; bit 7 of a SFX byte is the SGB stop request.
+reg       sfx_start_r = 1'b0;
+reg       sfx_stop_r  = 1'b0;
+reg [2:0] sfx_index_r = 3'd0;
+reg       sfx_is_b    = 1'b0;   // currently-playing effect is a B (loop) one
+reg [7:0] sfx_a_num   = 8'd0;   // latched SOUND byte 1 (SFX-A)
+reg [7:0] sfx_b_num   = 8'd0;   // latched SOUND byte 2 (SFX-B)
+assign sfx_start = sfx_start_r;
+assign sfx_stop  = sfx_stop_r;
+assign sfx_index = sfx_index_r;
+
+// Map a SGB SFX number to a bank index. hit=1 when the number is one of the
+// banked effects. These are the 8 effects Kirby Dream Land 2 uses (see its
+// SGBSFXPackets table). SFX-A numbers map to indices 0..2, SFX-B to 3..7.
+function [3:0] sfx_map_a;   // {hit, index[2:0]}
+    input [6:0] num;
+    begin
+        case (num)
+            7'h1F:   sfx_map_a = 4'b1_000;  // A1F SwordSwing
+            7'h26:   sfx_map_a = 4'b1_001;  // A26 PictureFloats
+            7'h30:   sfx_map_a = 4'b1_010;  // A30 SmallLaser
+            default: sfx_map_a = 4'b0_000;
+        endcase
+    end
+endfunction
+function [3:0] sfx_map_b;   // {hit, index[2:0]}
+    input [6:0] num;
+    begin
+        case (num)
+            7'h01:   sfx_map_b = 4'b1_011;  // B01 ApplauseSmall
+            7'h04:   sfx_map_b = 4'b1_100;  // B04 Wind
+            7'h07:   sfx_map_b = 4'b1_101;  // B07 StormThunder
+            7'h08:   sfx_map_b = 4'b1_110;  // B08 LightningB
+            7'h0B:   sfx_map_b = 4'b1_111;  // B0B Wave
+            default: sfx_map_b = 4'b0_000;
+        endcase
+    end
+endfunction
+wire [3:0] sfx_hit_a  = sfx_map_a(sfx_a_num[6:0]);
+wire [3:0] sfx_hit_b  = sfx_map_b(sfx_b_num[6:0]);
 sgb_snd sgb_snd_inst (
     .clk_sys       ( clk_sys           ),
     .reset         ( reset_ss          ),
@@ -1135,13 +1187,29 @@ sgb_snd sgb_snd_inst (
 // corruption.
 // Tuning (total gain vs BRR full scale): 2 = -12dB (too loud on the
 // chromatic codec path), 3 = -18dB, 4 = -24dB, 5 = -30dB.
-localparam [2:0] SGB_PCM_SHIFT = 3'd4;
+localparam [2:0] SGB_PCM_SHIFT = 3'd5;
 wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> SGB_PCM_SHIFT) : 16'd0;
 
-wire [16:0] mix_l = {apu_l[15], apu_l} + {{1{sgb_pcm_att[15]}}, sgb_pcm_att};
-wire [16:0] mix_r = {apu_r[15], apu_r} + {{1{sgb_pcm_att[15]}}, sgb_pcm_att};
-assign audio_l = (mix_l[16] ^ mix_l[15]) ? (mix_l[16] ? 16'h8000 : 16'h7FFF) : mix_l[15:0];
-assign audio_r = (mix_r[16] ^ mix_r[15]) ? (mix_r[16] ? 16'h8000 : 16'h7FFF) : mix_r[15:0];
+// Built-in SFX bank PCM (sgb_sfx_play). The decoded BRR is full-scale SNES-DSP
+// output rendered at full master volume, so attenuate like sgb_pcm. hPcm is a
+// sample-and-hold that the player drives to 0 when idle, so no extra gating is
+// needed beyond isSGB. Slightly louder than the custom BRR (shift 4 vs 5) since
+// these are prominent UI/ambient effects; tune to taste.
+localparam [2:0] SFX_PCM_SHIFT = 3'd4;
+wire signed [15:0] sfx_pcm_att = isSGB ? ($signed(sfx_pcm) >>> SFX_PCM_SHIFT) : 16'd0;
+
+wire [17:0] mix_l = {{2{apu_l[15]}}, apu_l}
+                  + {{2{sgb_pcm_att[15]}}, sgb_pcm_att}
+                  + {{2{sfx_pcm_att[15]}}, sfx_pcm_att};
+wire [17:0] mix_r = {{2{apu_r[15]}}, apu_r}
+                  + {{2{sgb_pcm_att[15]}}, sgb_pcm_att}
+                  + {{2{sfx_pcm_att[15]}}, sfx_pcm_att};
+wire signed [17:0] mix_l_s = mix_l;
+wire signed [17:0] mix_r_s = mix_r;
+assign audio_l = (mix_l_s >  18'sd32767)  ? 16'h7FFF :
+                 (mix_l_s < -18'sd32768)  ? 16'h8000 : mix_l[15:0];
+assign audio_r = (mix_r_s >  18'sd32767)  ? 16'h7FFF :
+                 (mix_r_s < -18'sd32768)  ? 16'h8000 : mix_r[15:0];
 
 wire [7:0] Savestate_RAMReadData_VRAM0, Savestate_RAMReadData_VRAM1;
 
@@ -1718,6 +1786,9 @@ always @(posedge clk_sys) begin
 		// sgb_snd pulses: one ce-cycle wide, edge-detected in sgb_snd on clk_sys
 		sgb_snd_trig <= 0;
 		sgb_sou_trn_valid <= 0;
+		// sgb_sfx_play pulses: one ce-cycle wide, edge-detected on hclk
+		sfx_start_r <= 0;
+		sfx_stop_r  <= 0;
 
 		// mask_en intentionally NOT cleared on LCD power-off: games (e.g.
 		// Game & Watch Gallery) set MASK_EN around screen loads and toggle
@@ -1890,12 +1961,34 @@ always @(posedge clk_sys) begin
 				// SGB custom audio (sgb_snd.v): SOUND latches X (byte 1) and
 				// Z (byte 4) and pulses the BRR trigger; SOU_TRN pulses the
 				// sample-resident strobe once per transfer.
+				// Built-in SFX bank (sgb_sfx_play): SOUND's SFX-A (byte 1) and
+				// SFX-B (byte 2) numbers are mapped onto the trimmed bank and
+				// trigger/stop playback when the packet completes (byte 4).
 				CMD_SOUND: begin
 					if (isSGB) begin
-						if (byte_cnt == 5'd1) sgb_snd_id <= data;
+						if (byte_cnt == 5'd1) begin
+							sgb_snd_id <= data;
+							sfx_a_num  <= data;
+						end
+						if (byte_cnt == 5'd2) sfx_b_num <= data;
 						if (byte_cnt == 5'd4) begin
 							sgb_snd_z    <= data;
 							sgb_snd_trig <= 1'b1;
+							// Stop (bit 7 of a SFX byte, aimed at whichever channel
+							// is playing) takes precedence, and a stop byte must
+							// never itself (re)start playback.
+							if ((sfx_a_num[7] && !sfx_is_b) ||
+							    (sfx_b_num[7] &&  sfx_is_b)) begin
+								sfx_stop_r  <= 1'b1;
+							end else if (!sfx_b_num[7] && sfx_hit_b[3]) begin
+								sfx_start_r <= 1'b1;
+								sfx_index_r <= sfx_hit_b[2:0];
+								sfx_is_b    <= 1'b1;
+							end else if (!sfx_a_num[7] && sfx_hit_a[3]) begin
+								sfx_start_r <= 1'b1;
+								sfx_index_r <= sfx_hit_a[2:0];
+								sfx_is_b    <= 1'b0;
+							end
 						end
 					end
 				end

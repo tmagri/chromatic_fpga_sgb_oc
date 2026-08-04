@@ -23,18 +23,32 @@ import wave, struct, json, os, argparse
 
 def clamp16(v): return max(-32768, min(32767, v))
 
+def dec_sample(n, shift, filt, p1, p2):
+    """Exact SNES-DSP (ares) decode of one nibble; p1/p2 are the previous two
+    FULL-SCALE outputs. The encoder MUST re-synthesize with this or the bank
+    decodes to something unlike the source (the old half-scale predictor
+    formulas measured 2x too little feedback and decorrelated the output).
+    n may be signed (-8..7) or an unsigned 4-bit nibble (0..15)."""
+    n &= 0xF
+    t = n - 16 if n & 8 else n
+    t = (t << shift) >> 1 if shift <= 12 else (t & ~0x7FF)
+    p2h = p2 >> 1
+    if filt==1:   t += (p1>>1)+((-p1)>>5)
+    elif filt==2: t += p1-p2h+(p2h>>4)+((p1*-3)>>6)
+    elif filt==3: t += p1-p2h+((p1*-13)>>7)+((p2h*3)>>4)
+    t = clamp16(t)
+    t = (t << 1) & 0xFFFF
+    return t - 0x10000 if t >= 0x8000 else t
+
 def _try_block(s16, shift, filt, p1, p2):
     out=[]; err=0; s1,s2=p1,p2; data=bytearray(8)
     for i in range(16):
         s=s16[i]
-        if filt==1:   pred=(s1>>1)+((-s1)>>5)
-        elif filt==2: pred=s1+((-(s1+(s1>>1)))>>5)-(s2>>1)+(s2>>5)
-        elif filt==3: pred=s1+((-(s1+(s1<<1)+(s1<<2)+(s1<<3)))>>6)-(s2>>1)+((s2+(s2>>1))>>4)
-        else: pred=0
+        pred=dec_sample(0, shift, filt, s1, s2)   # history-only contribution
         r=s-pred
         n=r if shift==0 else (r+(1<<(shift-1)))>>shift
         n=max(-8,min(7,n))
-        ds=clamp16((n<<shift)+pred)
+        ds=dec_sample(n, shift, filt, s1, s2)
         d=ds-s; err+=d*d; out.append(n); s2,s1=s1,ds
     for i in range(8): data[i]=((out[2*i]&0xF)<<4)|(out[2*i+1]&0xF)
     return bytes(data), err, s1, s2

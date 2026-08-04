@@ -57,7 +57,16 @@ module emu_system_top
     output [1:0]        gb_lcd_mode,
     output              gb_lcd_on,
     output              gb_lcd_vsync,
-    output              boot_done_out
+    output              boot_done_out,
+
+    // SGB built-in SFX bank playback (engine in mem_system_top): trigger/index
+    // come from gb.v's SOUND packet handling, decoded PCM returns to gb.v mix.
+    output              sfx_start,
+    output              sfx_stop,
+    output [2:0]        sfx_index,
+    input signed [15:0] sfx_pcm,
+    input               sfx_pcm_valid,
+    input               sfx_playing
 
 );
 
@@ -432,6 +441,16 @@ module emu_system_top
     wire [14:0] gb_sgb_pal_out;
     wire        gb_sgb_pal_en;
 
+    // SGB built-in SFX trigger outputs from gb.v (declared before u_gb, see
+    // first-use-wins note above). The PCM return path uses the module ports
+    // sfx_pcm/sfx_pcm_valid/sfx_playing directly.
+    wire        gb_sfx_start;
+    wire        gb_sfx_stop;
+    wire [2:0]  gb_sfx_index;
+    assign sfx_start = gb_sfx_start;
+    assign sfx_stop  = gb_sfx_stop;
+    assign sfx_index = gb_sfx_index;
+
     gb u_gb(
         .reset(gbreset),
 
@@ -488,6 +507,14 @@ module emu_system_top
         // audio
         .audio_l(snd_l),
         .audio_r(snd_r),
+
+        // SGB built-in SFX bank playback: trigger/index out, decoded PCM in
+        .sfx_start(gb_sfx_start),
+        .sfx_stop(gb_sfx_stop),
+        .sfx_index(gb_sfx_index),
+        .sfx_pcm(sfx_pcm),
+        .sfx_pcm_valid(sfx_pcm_valid),
+        .sfx_playing(sfx_playing),
 
         // Megaduck?
         .megaduck(1'd0),
