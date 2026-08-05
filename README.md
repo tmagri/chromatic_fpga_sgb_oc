@@ -1,18 +1,42 @@
 # Chromatic FPGA
 
-This repository houses the ModRetro Chromatic's FPGA design files.
+*Note: This is not official Chromatic code; this is a hobby expansion of it.*
 
-For more information about the ModRetro Chromatic, please see visit [ModRetro.com](https://modretro.com/).
+This repository houses the FPGA design files for the ModRetro Chromatic hobby expansion.
 
-## Release Notes
+For more information about the official ModRetro Chromatic hardware, please visit [ModRetro.com](https://modretro.com/).
 
-- **Super Gameboy & Overclocking**: This revised core adds support for Super Gameboy and Overclocking features!
-- **Feature Freeze**: The FPGA chip is currently at 97% utilization (routing and logic bound), meaning adding new features is no longer feasible. The sgb_sound branch is final and released.
-- **Overclock Warning**: Consider Overclock mode to always be unstable, especially at 4x speed. **Do NOT use 4x mode while in the EverDrive menu**, or games will fail to boot. It is strongly advised to only enable 4x mode once you are already actively running a game.
+## Release Notes: Core Update - Final
 
-## ⚠️ CAUTION: Overclock Mode
+**Highlights:** Super Game Boy with basic SFX support and Overclocking are here! 
 
-Changing the overclock speed during a card read or write may cause system instability. Please avoid making changes during these operations. Although the system logic automatically checks for cartridge activity, you should manually ensure no changes are made during these times as an extra precaution. Timing issues with EverDrive carts can result in SD card corruption. **No liability is accepted for potential data loss.**
+### ✨ New Features
+*   **Easy Setup:** Added the new [Chromatic Installer](https://github.com/tmagri/chromatic_installer) for a streamlined, user-friendly installation process.
+*   **Super Game Boy (SGB) Support:** 
+    *   Added SGB Palettes.
+    *   Added Basic SGB SFX, including Pauline's cry in *Donkey Kong '94* and sound effects for *Kirby's Dream Land 2*.
+    *   *Note: Your MCU must be updated to support SGB SFX.*
+*   **Overclocking:** Introduced **2x** and **4x** speed modes. *Note: Overclocking is defined here as reducing game slowdown. It does not do fast-forward or increase the overall speed of the game, as we are limited by the read speed of the cartridge.* 
+
+### 🔄 Changes & Trade-offs
+*   **Audio Filter Simplified:** To free up necessary space for the new SGB sound features, the audio filter has been simplified, resulting in a 12dB loss. 
+
+### 🛑 Project Status: Feature Freeze (Final)
+The FPGA chip has reached 97% utilisation and is now routing and logic bound. This hardware limitation means adding new features is no longer feasible, and this sgb_sound branch/project is final. It has all the features intended for this expansion.
+
+---
+
+## ⚠️ CAUTION: Overclock Mode & EverDrive Risks
+*Please read carefully before using the new overclocking features.*
+
+*   **General Instability:** Consider Overclock mode to be inherently unstable at all times, especially when running at 4x speed.
+*   **Menu Boot Failures:** **Do NOT use 4x mode while in the EverDrive menu**, or your games will fail to boot. It is strongly advised to only enable 4x mode *after* you are actively running a game.
+*   **SD Card Corruption Risk:** Changing the overclock speed during a card read or write may cause severe system instability. Timing issues with EverDrive carts during these states can result in SD card corruption. 
+*   **Manual Precautions:** Although the system logic automatically checks for cartridge activity, you should manually ensure no speed changes are made during read/write operations as an extra precaution. 
+
+*(Note: No liability is accepted for potential data loss or SD card corruption).*
+
+---
 
 ## Setup
 
