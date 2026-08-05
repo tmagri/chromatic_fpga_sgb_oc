@@ -314,7 +314,7 @@ module top #(parameter ISSIMU=0)
         .voltageLow(low_battery),
         .lowBattDispMode(system_control[14:13]),
         .showTimer(1'b0), //system_control[8]),
-        .runTimer(system_control[9]),
+        .runTimer(1'b0), //system_control[9]),  // bit 9 repurposed: SGB mode disable (u_emu_system_top.sgb_disabled)
         .resetTimer(system_control[10]),
         .gSecondEna(secondEna),
         .gPercentEna(percentEna),
@@ -344,6 +344,15 @@ module top #(parameter ISSIMU=0)
     wire [15:0] left, right;
     wire [7:0]  volume;
     wire        hHeadphones;
+
+    // SGB built-in SFX bank playback: trigger/index/stop from the emulator,
+    // decoded PCM back to the emulator audio mix. Engine is in mem_system_top.
+    wire        sfx_start;
+    wire        sfx_stop;
+    wire [2:0]  sfx_index;
+    wire signed [15:0] sfx_pcm;
+    wire        sfx_pcm_valid;
+    wire        sfx_playing;
 
     aud_system_top u_aud_system_top(
         .gClk(gClk),
@@ -411,7 +420,16 @@ module top #(parameter ISSIMU=0)
         .hHsync(gb_lcd_mode[1]),
         .hVsync(gb_lcd_vsync),
         .hWrBurstQ(hWrBurstQ),
-        .hWrBurstQ2(hWrBurstQ2)
+        .hWrBurstQ2(hWrBurstQ2),
+
+        // SGB built-in SFX bank playback engine (control from the emulator,
+        // PCM back to the emulator audio mix)
+        .hSfxStart(sfx_start),
+        .hSfxStop(sfx_stop),
+        .hSfxIndex(sfx_index),
+        .hSfxPcm(sfx_pcm),
+        .hSfxPcmValid(sfx_pcm_valid),
+        .hSfxPlaying(sfx_playing)
     );
 
     wire IR_RX_FILTER;
@@ -463,6 +481,10 @@ module top #(parameter ISSIMU=0)
         // oc_lvl: bits [15] and [8] of system_control
         // 2'b00=1x(off)  2'b01=2x  2'b10=4x
         .oc_lvl({system_control[15], system_control[8]}),
+        // SGB mode disable: bit [9] of system_control ("Enable SGB mode"
+        // setting in the MCU OSD). 0 (default/reset) = SGB enabled,
+        // 1 = force GB mode even for SGB-flagged carts.
+        .sgb_disabled(system_control[9]),
         .gbc_mode(gbc_mode),
         .isSGB_out(isSGB_out),
         .gpd(gpd),
@@ -503,6 +525,13 @@ module top #(parameter ISSIMU=0)
         // audio
         .left(left),
         .right(right),
+        // SGB built-in SFX bank playback (engine lives in mem_system_top)
+        .sfx_start(sfx_start),
+        .sfx_stop(sfx_stop),
+        .sfx_index(sfx_index),
+        .sfx_pcm(sfx_pcm),
+        .sfx_pcm_valid(sfx_pcm_valid),
+        .sfx_playing(sfx_playing),
         // video
         .LCD_INIT_DONE(LCD_INIT_DONE),
         .gb_lcd_clkena(gb_lcd_clkena),

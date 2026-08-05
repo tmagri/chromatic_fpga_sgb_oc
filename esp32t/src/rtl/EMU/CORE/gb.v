@@ -83,6 +83,15 @@ module gb (
     output [15:0] audio_l,
     output [15:0] audio_r,
 
+    // SGB built-in SFX bank playback (sgb_sfx_play lives in mem_system_top):
+    // trigger/index/stop out, decoded PCM in for mixing.
+    output        sfx_start,
+    output        sfx_stop,
+    output [2:0]  sfx_index,
+    input signed [15:0] sfx_pcm,
+    input         sfx_pcm_valid,
+    input         sfx_playing,
+
     // Megaduck?
     input megaduck,
 
@@ -627,6 +636,9 @@ end
 wire audio_rd = !cpu_rd_n && sel_audio;
 wire audio_wr = !cpu_wr_n_edge && sel_audio;
 
+wire [15:0] apu_l;   // raw APU output, before SGB BRR mix
+wire [15:0] apu_r;
+
 gbc_snd audio (
     .clk                ( clk_sys           ),
     .ce            ( ce_2x           ),
@@ -638,11 +650,11 @@ gbc_snd audio (
     .s1_read        ( audio_rd          ),
     .s1_write       ( audio_wr          ),
     .s1_addr        ( cpu_addr[6:0] ),
-   .s1_readdata     ( audio_do        ),
-    .s1_writedata  ( cpu_do         ),
+    .s1_readdata    ( audio_do        ),
+    .s1_writedata   ( cpu_do         ),
 
-   .snd_left        ( audio_l           ),
-    .snd_right      ( audio_r           ),
+    .snd_left       ( apu_l             ),
+    .snd_right      ( apu_r             ),
     
   .SaveStateBus_Din  (SaveStateBus_Din ), 
   .SaveStateBus_Adr  (SaveStateBus_Adr ),
@@ -1087,6 +1099,119 @@ wire vram1_wren = video_rd?1'b0:vram_bank&&((hdma_rd&&isGBC)||cpu_wr_vram);
 wire [15:0] hdma_target_addr;
 wire [12:0] vram_addr = video_rd?video_addr:(hdma_rd&&isGBC)?hdma_target_addr[12:0]:(dma_rd&&dma_sel_vram)?dma_addr[12:0]:cpu_addr[12:0];
 
+// --------------------- SGB BRR custom audio (HLE) -------------------
+// sgb_snd snoops VRAM writes into a 4 KB rolling cache (frozen once the
+// SOU_TRN payload is resident) and decodes the uploaded SNES BRR sample
+// when a SOUND packet triggers it. See sgb_snd.v (COMPRESSED port for
+// GW5A) and the upstream Gameboy_MiSTer/rtl/sgb_snd.v for the DKGB layout.
+// POSITIONING IS LOAD-BEARING (Gowin SystemVerilog first-use-wins rules):
+//   1. The block sits AFTER the vram_di/vram_wren/vram_addr declarations
+//      above. If the instance were the first use of those names, Gowin
+//      would implicitly declare 1-bit nets here and bind them to the
+//      ports; the sample cache would never be written, pcm_out would
+//      collapse to constant 0 and the whole module would be swept in
+//      optimizing (NL0002) -- the failure mode of the 2026-08-03 build.
+//      Do NOT move this block above the vram declarations.
+//   2. The four trigger regs are declared before the instance (it is what
+//      first references them), so Gowin cannot implicitly create them as
+//      wires and conflict with the procedural assignments in the
+//      packet-engine always block below.
+reg       sgb_snd_trig = 1'b0;
+reg [7:0] sgb_snd_id = 8'd0;
+reg [7:0] sgb_snd_z = 8'd0;
+reg       sgb_sou_trn_valid = 1'b0;
+wire [15:0] sgb_pcm;
+
+// SGB built-in SFX bank trigger (sgb_sfx_play in mem_system_top). The SOUND
+// packet's SFX-A (byte 1) and SFX-B (byte 2) numbers are mapped onto the
+// trimmed bank's 7 effects; bit 7 of a SFX byte is the SGB stop request.
+reg       sfx_start_r = 1'b0;
+reg       sfx_stop_r  = 1'b0;
+reg [2:0] sfx_index_r = 3'd0;
+reg       sfx_is_b    = 1'b0;   // currently-playing effect is a B (loop) one
+reg [7:0] sfx_a_num   = 8'd0;   // latched SOUND byte 1 (SFX-A)
+reg [7:0] sfx_b_num   = 8'd0;   // latched SOUND byte 2 (SFX-B)
+assign sfx_start = sfx_start_r;
+assign sfx_stop  = sfx_stop_r;
+assign sfx_index = sfx_index_r;
+
+// Map a SGB SFX number to a bank index. hit=1 when the number is one of the
+// banked effects. These are the 8 effects Kirby Dream Land 2 uses (see its
+// SGBSFXPackets table). SFX-A numbers map to indices 0..2, SFX-B to 3..7.
+function [3:0] sfx_map_a;   // {hit, index[2:0]}
+    input [6:0] num;
+    begin
+        case (num)
+            7'h1F:   sfx_map_a = 4'b1_000;  // A1F SwordSwing
+            7'h26:   sfx_map_a = 4'b1_001;  // A26 PictureFloats
+            7'h30:   sfx_map_a = 4'b1_010;  // A30 SmallLaser
+            default: sfx_map_a = 4'b0_000;
+        endcase
+    end
+endfunction
+function [3:0] sfx_map_b;   // {hit, index[2:0]}
+    input [6:0] num;
+    begin
+        case (num)
+            7'h01:   sfx_map_b = 4'b1_011;  // B01 ApplauseSmall
+            7'h04:   sfx_map_b = 4'b1_100;  // B04 Wind
+            7'h07:   sfx_map_b = 4'b1_101;  // B07 StormThunder
+            7'h08:   sfx_map_b = 4'b1_110;  // B08 LightningB
+            7'h0B:   sfx_map_b = 4'b1_111;  // B0B Wave
+            default: sfx_map_b = 4'b0_000;
+        endcase
+    end
+endfunction
+wire [3:0] sfx_hit_a  = sfx_map_a(sfx_a_num[6:0]);
+wire [3:0] sfx_hit_b  = sfx_map_b(sfx_b_num[6:0]);
+sgb_snd sgb_snd_inst (
+    .clk_sys       ( clk_sys           ),
+    .reset         ( reset_ss          ),
+    .sgb_en        ( isSGB             ),
+    .snd_trig      ( sgb_snd_trig      ),
+    .snd_id        ( sgb_snd_id        ),
+    .snd_mute      ( 1'b0              ),
+    .snd_z         ( sgb_snd_z         ),
+    .sou_trn_valid ( sgb_sou_trn_valid ),
+    .sp_ce         ( ce_cpu & isSGB    ),
+    .sp_wren       ( vram_wren & isSGB ),
+    .sp_addr       ( vram_addr[11:0]   ),
+    .sp_data       ( vram_di           ),
+    .pcm_out       ( sgb_pcm           )
+);
+
+// Attenuate SGB PCM. The HLE decoder emits full-scale SNES-DSP *input*
+// samples; real SGB hardware then multiplies by the SPC700 voice volume
+// and master volume (7-bit each) before the DAC, so raw playback is far
+// too loud. Gate the output to 0 when not in SGB mode to prevent audio
+// corruption.
+// Tuning (total gain vs BRR full scale): 2 = -12dB (too loud on the
+// chromatic codec path), 3 = -18dB, 4 = -24dB, 5 = -30dB.
+localparam [2:0] SGB_PCM_SHIFT = 3'd6;
+wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> SGB_PCM_SHIFT) : 16'd0;
+
+// Built-in SFX bank PCM (sgb_sfx_play). The decoded BRR is full-scale SNES-DSP
+// output rendered at full master volume, so it needs heavy attenuation. hPcm is
+// a sample-and-hold that the player drives to 0 when idle, so no extra gating is
+// needed beyond isSGB. These are meant to sit in the background as subtle ambience,
+// so attenuate well below the custom BRR (shift 6 = /64 = -36dB). Tune to taste:
+// each +1 halves the volume (5 = /32, 6 = /64, 7 = /128).
+localparam [2:0] SFX_PCM_SHIFT = 3'd6;
+wire signed [15:0] sfx_pcm_att = isSGB ? ($signed(sfx_pcm) >>> SFX_PCM_SHIFT) : 16'd0;
+
+wire [17:0] mix_l = {{2{apu_l[15]}}, apu_l}
+                  + {{2{sgb_pcm_att[15]}}, sgb_pcm_att}
+                  + {{2{sfx_pcm_att[15]}}, sfx_pcm_att};
+wire [17:0] mix_r = {{2{apu_r[15]}}, apu_r}
+                  + {{2{sgb_pcm_att[15]}}, sgb_pcm_att}
+                  + {{2{sfx_pcm_att[15]}}, sfx_pcm_att};
+wire signed [17:0] mix_l_s = mix_l;
+wire signed [17:0] mix_r_s = mix_r;
+assign audio_l = (mix_l_s >  18'sd32767)  ? 16'h7FFF :
+                 (mix_l_s < -18'sd32768)  ? 16'h8000 : mix_l[15:0];
+assign audio_r = (mix_r_s >  18'sd32767)  ? 16'h7FFF :
+                 (mix_r_s < -18'sd32768)  ? 16'h8000 : mix_r[15:0];
+
 wire [7:0] Savestate_RAMReadData_VRAM0, Savestate_RAMReadData_VRAM1;
 
 dpramV #(13) vram0 (
@@ -1518,6 +1643,8 @@ localparam CMD_ATTR_BLK = 5'h04;
 localparam CMD_ATTR_LIN = 5'h05;
 localparam CMD_ATTR_DIV = 5'h06;
 localparam CMD_ATTR_CHR = 5'h07;
+localparam CMD_SOUND    = 5'h08;   // SGB sound-effect trigger (header $41)
+localparam CMD_SOU_TRN  = 5'h09;   // SGB 4KB sound-data VRAM transfer ($49)
 localparam CMD_PAL_SET  = 5'h0A;
 localparam CMD_PAL_TRN  = 5'h0B;
 localparam CMD_MLT_REQ  = 5'h11;
@@ -1552,9 +1679,9 @@ reg [14:0] pal_color;
 reg pal0123_wr;
 
 reg [8:0] sys_pal_no[4];
-reg [5:0] attr_file_no;
-reg [1:0] mask_en;
-reg cancel_mask;
+reg [5:0] attr_file_no = 0;
+reg [1:0] mask_en = 0;
+reg cancel_mask = 0;
 
 reg [2:0] attr_blk_ctrl;
 reg [5:0] attr_blk_pal;
@@ -1657,6 +1784,12 @@ always @(posedge clk_sys) begin
 		attr_lin_set <= 0;
 		attr_div_set <= 0;
 		attr_chr_set <= 0;
+		// sgb_snd pulses: one ce-cycle wide, edge-detected in sgb_snd on clk_sys
+		sgb_snd_trig <= 0;
+		sgb_sou_trn_valid <= 0;
+		// sgb_sfx_play pulses: one ce-cycle wide, edge-detected on hclk
+		sfx_start_r <= 0;
+		sfx_stop_r  <= 0;
 
 		// mask_en intentionally NOT cleared on LCD power-off: games (e.g.
 		// Game & Watch Gallery) set MASK_EN around screen loads and toggle
@@ -1826,6 +1959,45 @@ always @(posedge clk_sys) begin
 				CMD_MASK_EN: begin
 					if (byte_cnt == 5'd1) mask_en <= data[1:0];
 				end
+				// SGB custom audio (sgb_snd.v): SOUND latches X (byte 1) and
+				// Z (byte 4) and pulses the BRR trigger; SOU_TRN pulses the
+				// sample-resident strobe once per transfer.
+				// Built-in SFX bank (sgb_sfx_play): SOUND's SFX-A (byte 1) and
+				// SFX-B (byte 2) numbers are mapped onto the trimmed bank and
+				// trigger/stop playback when the packet completes (byte 4).
+				CMD_SOUND: begin
+					if (isSGB) begin
+						if (byte_cnt == 5'd1) begin
+							sgb_snd_id <= data;
+							sfx_a_num  <= data;
+						end
+						if (byte_cnt == 5'd2) sfx_b_num <= data;
+						if (byte_cnt == 5'd4) begin
+							sgb_snd_z    <= data;
+							sgb_snd_trig <= 1'b1;
+							// Stop (bit 7 of a SFX byte, aimed at whichever channel
+							// is playing) takes precedence, and a stop byte must
+							// never itself (re)start playback.
+							if ((sfx_a_num[7] && !sfx_is_b) ||
+							    (sfx_b_num[7] &&  sfx_is_b)) begin
+								sfx_stop_r  <= 1'b1;
+							end else if (!sfx_b_num[7] && sfx_hit_b[3]) begin
+								sfx_start_r <= 1'b1;
+								sfx_index_r <= sfx_hit_b[2:0];
+								sfx_is_b    <= 1'b1;
+							end else if (!sfx_a_num[7] && sfx_hit_a[3]) begin
+								sfx_start_r <= 1'b1;
+								sfx_index_r <= sfx_hit_a[2:0];
+								sfx_is_b    <= 1'b0;
+							end
+						end
+					end
+				end
+				CMD_SOU_TRN: begin
+					if (isSGB) begin
+						if (byte_cnt == 5'd1) sgb_sou_trn_valid <= 1'b1;
+					end
+				end
 			endcase
 
 			if (&byte_cnt) begin
@@ -1967,9 +2139,9 @@ end
 reg [14:0] sys_pal_data, pal_wr_data;
 reg [1:0] pal_wr_no, pal_wr_col_no;
 reg [59:0] palette[4];
-reg pal_set_wait, pal_set_busy, pal_wr, pal_cancel_mask, pal_clear;
+reg pal_set_wait = 0, pal_set_busy = 0, pal_wr = 0, pal_cancel_mask = 0, pal_clear = 1;
 reg [3:0] pal_set_cnt, pal_set_cnt_r;
-reg output_sgb_pal;
+reg output_sgb_pal = 0;
 
 // LCD power-off edge, used to (a) drop a stuck screen mask -- MASK_EN is
 // only ever transient around transfers, so clearing it on LCD-off cannot
@@ -2274,7 +2446,7 @@ reg [1:0]  lcd_data_gb_r;
 reg [1:0]  pal_no;
 reg lcd_clkena_r, lcd_on_r, lcd_vsync_r;
 reg [1:0]  lcd_mode_r;
-reg [1:0]  mask_en_r;
+reg [1:0]  mask_en_r = 0;
 
 always @(posedge clk_sys) begin
 	if (ce) begin

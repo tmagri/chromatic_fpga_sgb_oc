@@ -13,6 +13,7 @@ module emu_system_top
     input [63:0]        paletteOBJ1In,
     input               paletteOff,
     input [1:0]         oc_lvl,      // 0=1x  1=2x  2=4x
+    input               sgb_disabled, // user setting: 1 = force GB mode; 0 (default) = SGB enabled
     output              gbc_mode,
     output              isSGB_out,   // SGB game detected
     output [63:0]       gpd,
@@ -57,7 +58,16 @@ module emu_system_top
     output [1:0]        gb_lcd_mode,
     output              gb_lcd_on,
     output              gb_lcd_vsync,
-    output              boot_done_out
+    output              boot_done_out,
+
+    // SGB built-in SFX bank playback (engine in mem_system_top): trigger/index
+    // come from gb.v's SOUND packet handling, decoded PCM returns to gb.v mix.
+    output              sfx_start,
+    output              sfx_stop,
+    output [2:0]        sfx_index,
+    input signed [15:0] sfx_pcm,
+    input               sfx_pcm_valid,
+    input               sfx_playing
 
 );
 
@@ -261,16 +271,31 @@ module emu_system_top
     wire sgb_pal_ready; // SGB engine has a live palette (boot blackout gate)
     wire sgb_trn_active; // SGB transfer (PAL_TRN etc.) in progress
 
+    // User-facing "Enable SGB mode" setting (MCU OSD, default enabled):
+    // sgb_disabled = system_control[9], so at reset/power-on (before the
+    // first SysCtrl message arrives) the engine is ENABLED -- matching the
+    // setting's default. The disable takes effect combinationally: forcing
+    // GB mode disarms the engine immediately, and re-enabling re-arms it the
+    // same cycle (the snooped header flags that feed isSGB_game persist for
+    // the whole session until gbreset, so the latch re-fires without needing
+    // a re-snoop). Note a clean in-game mode swap still generally needs a
+    // reset, since the running software does not re-initialise SGB state --
+    // but the hardware enable/disable itself is immediate.
+    wire sgb_enabled = ~sgb_disabled;
+
     // Sticky across gbreset on purpose: the EverDrive resumes games with a
     // no-reset jump, so the resumed game must keep its engine. The EDGB OS
     // header is CGB-flagged ($0143=$80, title "GBXOS"), so the OS boot
     // itself never latches the flag -- the OS menu simply runs with the
     // engine armed (as it would on real SGB hardware), and the boot
     // blackout logic below handles the stale OS palette at resume.
-    // Cleared only on reset_n (cart removal / PLL unlock / power).
+    // Cleared on reset_n (cart removal / PLL unlock / power) or when the
+    // user switches SGB mode off (sgb_disabled).
     always @(posedge hclk or negedge reset_n) begin
         if (~reset_n)
             sgb_detected <= 1'b0;
+        else if (sgb_disabled)
+            sgb_detected <= 1'b0;   // user forced GB mode: disarm the engine
         else if (isSGB_game && !isGBC_game)
             sgb_detected <= 1'b1;   // latch when the header is snooped during boot
     end
@@ -402,6 +427,46 @@ module emu_system_top
                       (cart_sgb_flag == 8'h03) && (cart_old_lic == 8'h33);
     assign isSGB_out = sgb_detected;
 
+    // ----------------------------------------------------------------
+    // Internal GB LCD raw wires (before SGB palette processing)
+    // Declared BEFORE the u_gb instance below: in SystemVerilog mode Gowin
+    // implicitly declares a net at first use, and first use wins (EX3638).
+    // Declaring after the instance worked for these bare-identifier
+    // connections so far, but it is the exact pattern that silently killed
+    // sgb_snd in gb.v (expression connections bind the implicit net); keep
+    // all u_gb interconnect declared before the instance.
+    // ----------------------------------------------------------------
+    wire        gb_raw_lcd_clkena;
+    wire [14:0] gb_raw_lcd_data;
+    wire [1:0]  gb_raw_lcd_data_gb;  // 2-bit DMG pixel indices for SGB
+    wire [7:0]  gb_raw_lcd_pix_x;    // screen x of the lcd_data_gb pixel (in lockstep)
+    wire [7:0]  gb_raw_lcd_pix_y;    // screen y of the lcd_data_gb pixel (in lockstep)
+    wire [1:0]  gb_raw_lcd_mode;
+    wire        gb_raw_lcd_on;
+    wire        gb_raw_lcd_vsync;
+
+    // Main-video LCD taps for the SGB module (never videoBypass outputs)
+    wire        gb_sgb_lcd_clkena;
+    wire [1:0]  gb_sgb_lcd_data_gb;
+    wire [1:0]  gb_sgb_lcd_mode;
+    wire        gb_sgb_lcd_on;
+
+    // SGB palette overlay outputs from gb.v (applied here, not inside gb.v,
+    // matching the working sgb.v structure where this combinational path
+    // crossed a module boundary).
+    wire [14:0] gb_sgb_pal_out;
+    wire        gb_sgb_pal_en;
+
+    // SGB built-in SFX trigger outputs from gb.v (declared before u_gb, see
+    // first-use-wins note above). The PCM return path uses the module ports
+    // sfx_pcm/sfx_pcm_valid/sfx_playing directly.
+    wire        gb_sfx_start;
+    wire        gb_sfx_stop;
+    wire [2:0]  gb_sfx_index;
+    assign sfx_start = gb_sfx_start;
+    assign sfx_stop  = gb_sfx_stop;
+    assign sfx_index = gb_sfx_index;
+
     gb u_gb(
         .reset(gbreset),
 
@@ -458,6 +523,14 @@ module emu_system_top
         // audio
         .audio_l(snd_l),
         .audio_r(snd_r),
+
+        // SGB built-in SFX bank playback: trigger/index out, decoded PCM in
+        .sfx_start(gb_sfx_start),
+        .sfx_stop(gb_sfx_stop),
+        .sfx_index(gb_sfx_index),
+        .sfx_pcm(sfx_pcm),
+        .sfx_pcm_valid(sfx_pcm_valid),
+        .sfx_playing(sfx_playing),
 
         // Megaduck?
         .megaduck(1'd0),
@@ -542,30 +615,6 @@ module emu_system_top
         .rewind_active(1'd0)
     );
 
-    // ----------------------------------------------------------------
-    // Internal GB LCD raw wires (before SGB palette processing)
-    // ----------------------------------------------------------------
-    wire        gb_raw_lcd_clkena;
-    wire [14:0] gb_raw_lcd_data;
-    wire [1:0]  gb_raw_lcd_data_gb;  // 2-bit DMG pixel indices for SGB
-    wire [7:0]  gb_raw_lcd_pix_x;    // screen x of the lcd_data_gb pixel (in lockstep)
-    wire [7:0]  gb_raw_lcd_pix_y;    // screen y of the lcd_data_gb pixel (in lockstep)
-    wire [1:0]  gb_raw_lcd_mode;
-    wire        gb_raw_lcd_on;
-    wire        gb_raw_lcd_vsync;
-
-    // Main-video LCD taps for the SGB module (never videoBypass outputs)
-    wire        gb_sgb_lcd_clkena;
-    wire [1:0]  gb_sgb_lcd_data_gb;
-    wire [1:0]  gb_sgb_lcd_mode;
-    wire        gb_sgb_lcd_on;
-
-    // SGB palette overlay outputs from gb.v (applied here, not inside gb.v,
-    // matching the working sgb.v structure where this combinational path
-    // crossed a module boundary).
-    wire [14:0] gb_sgb_pal_out;
-    wire        gb_sgb_pal_en;
-
     // Hold the LCD *pixels* black from power-on until the game's first real
     // picture, so the boot ROM frame, any SGB init leftover white, AND
     // any solid-colour init screen all stay hidden -- e.g. Pokemon's Init turns
@@ -605,9 +654,12 @@ module emu_system_top
     // the same session — without it, sgb_detected is still 1 when the OS
     // boots and the menu sits black for the full ~4 s SGB palette-gated
     // timeout. GB/GBC games likewise get the fast path regardless of prior
-    // session state.
+    // session state. Also forced low when SGB mode is disabled so the boot
+    // blackout uses the fast 60f path (and no SGB palette overlay applies).
     always @(posedge hclk) begin
         if (gbreset_ungated || gbreset || (~prev_boot_rom_enabled && boot_rom_enabled))
+            boot_sgb <= 1'b0;
+        else if (~sgb_enabled)
             boot_sgb <= 1'b0;
         else if (isSGB_game && !isGBC_game)
             boot_sgb <= 1'b1;

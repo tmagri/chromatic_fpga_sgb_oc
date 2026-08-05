@@ -7,7 +7,7 @@ For more information about the ModRetro Chromatic, please see visit [ModRetro.co
 ## Release Notes
 
 - **Super Gameboy & Overclocking**: This revised core adds support for Super Gameboy and Overclocking features!
-- **Feature Freeze**: The FPGA chip is currently at 97% utilization (routing and logic bound), meaning adding new features is no longer feasible. Moving forward, only bug fixes will be checked and merged.
+- **Feature Freeze**: The FPGA chip is currently at 97% utilization (routing and logic bound), meaning adding new features is no longer feasible. The sgb_sound branch is final and released.
 - **Overclock Warning**: Consider Overclock mode to always be unstable, especially at 4x speed. **Do NOT use 4x mode while in the EverDrive menu**, or games will fail to boot. It is strongly advised to only enable 4x mode once you are already actively running a game.
 
 ## ⚠️ CAUTION: Overclock Mode

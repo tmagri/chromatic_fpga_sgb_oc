@@ -21,9 +21,8 @@ set_max_delay -from [get_clocks {hclk}] -to  [get_ports {CART_D[*]}] 14
 
 create_clock -name ck24 -period 41.666667 -waveform {0 20.833333} [get_ports {CLK_24MHz}]
 
-set_clock_groups -asynchronous -group [get_clocks {pclk}] -group [get_clocks {hclk}]
-set_clock_groups -asynchronous -group [get_clocks {pclk}] -group [get_clocks {gclk}]
-set_clock_groups -asynchronous -group [get_clocks {hclk}] -group [get_clocks {gclk}]
+// (pclk/hclk/gclk asynchronous groups already declared above with the other
+//  generated clocks -- the duplicate that used to be here was removed.)
 
 // USB Clocks
 create_generated_clock -name PHY_CLKOUT -source [get_ports {CLK_24MHz}] -master_clock ck24 -divide_by 16 -multiply_by 40 [get_pins {u_usb_top/u_Gowin_PLL_USB/PLLA_inst/CLKOUT1}]

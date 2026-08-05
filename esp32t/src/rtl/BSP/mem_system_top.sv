@@ -32,15 +32,26 @@ module mem_system_top #(parameter ISSIMU=0)
     output  [15:0]      hWrBurstQ2,
     
     output              BIST_failed,
-    output              BIST_finished
+    output              BIST_finished,
+
+    // SGB built-in SFX bank playback engine (sgb_sfx_play). Control and PCM
+    // live in the hClk (audio) domain; the PSRAM streaming happens internally
+    // on xClk through the 6th arbiter port.
+    input               hSfxStart,
+    input               hSfxStop,
+    input   [2:0]       hSfxIndex,
+    output signed [15:0] hSfxPcm,
+    output              hSfxPcmValid,
+    output              hSfxPlaying
 );
     
-    localparam RAMPORTCOUNT = 5;
+    localparam RAMPORTCOUNT = 6;
     localparam RAMPORT_BIST = 0;
     localparam RAMPORT_QSPI = 1;
     localparam RAMPORT_FBRD = 2;
     localparam RAMPORT_FBWR = 3;
     localparam RAMPORT_FBRDOSD = 4;
+    localparam RAMPORT_SFX = 5;
     
     typedef logic tRAMIn_request     [RAMPORTCOUNT];
     typedef logic tRAMIn_RnW         [RAMPORTCOUNT];
@@ -232,5 +243,34 @@ module mem_system_top #(parameter ISSIMU=0)
         .xDout(RAMIn_din[RAMPORT_FBWR]),
         .xAddress(RAMIn_addr[RAMPORT_FBWR])
     );
-    
+
+    // SGB built-in SFX bank playback: streams the pre-rendered BRR bank from
+    // PSRAM (BANK_BASE, see sgb_sfx_play.v) on the 6th arbiter port and decodes
+    // it to PCM in the hClk domain. Ready is gated on BIST_finished like the
+    // other PSRAM clients.
+    sgb_sfx_play u_sgb_sfx_play(
+        .xClk(xClk),
+        .xReset(reset),
+        .xRamReady(BIST_finished),
+
+        .xRamReq(RAMIn_request[RAMPORT_SFX]),
+        .xRamRnW(RAMIn_RnW[RAMPORT_SFX]),
+        .xRamAddr(RAMIn_addr[RAMPORT_SFX]),
+        .xRamDin(RAMIn_din[RAMPORT_SFX]),
+        .xRamBurstLen(RAMIn_burst_length[RAMPORT_SFX]),
+        .xRamDone(RAMOut_done[RAMPORT_SFX]),
+        .xRamDoutValid(RAMOut_dout_valid[RAMPORT_SFX]),
+        .xRamDout(RAM_dout),
+
+        .hClk(hClk),
+        .hReset(reset),
+        .hStart(hSfxStart),
+        .hStop(hSfxStop),
+        .hEffectIndex(hSfxIndex),
+
+        .hPcmValid(hSfxPcmValid),
+        .hPcm(hSfxPcm),
+        .hPlaying(hSfxPlaying)
+    );
+
 endmodule

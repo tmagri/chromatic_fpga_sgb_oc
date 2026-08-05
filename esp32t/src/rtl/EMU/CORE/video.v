@@ -453,6 +453,23 @@ always @(negedge clk) begin
 
 end
 
+// Posedge read-back copies of the negedge-clocked lcdc/lyc_r_dmg above.
+// Feeding the negedge registers directly into the cpu_do read mux created
+// fall->rise half-cycle paths (29.8 ns budget at hclk) through the deep
+// T80 read mux -- the hclk setup violations. The CPU cannot read a
+// register back in the same cycle it writes it (the next access is at
+// least a full machine cycle later), so a half-cycle-old copy is exact on
+// the bus. All internal uses (lcdc_on, lyc_match, STAT interrupt) keep the
+// live negedge registers; only the read mux below uses the copies.
+reg [7:0] lcdc_rd;
+reg [7:0] lyc_dmg_rd;
+always @(posedge clk) begin
+	lcdc_rd    <= lcdc;
+	lyc_dmg_rd <= lyc_r_dmg;
+end
+
+wire [7:0] lyc_rd = (isGBC ? lyc_r_gbc : lyc_dmg_rd);
+
 always @(posedge clk) begin
 
 	if(reset) begin
@@ -564,12 +581,12 @@ end
 
 assign cpu_do =
 	cpu_sel_oam?oam_do:
-	(cpu_addr == 8'h40)?lcdc:
+	(cpu_addr == 8'h40)?lcdc_rd:
 	(cpu_addr == 8'h41)?{1'b1,stat[6:3], lyc_match_l, mode}:
 	(cpu_addr == 8'h42)?scy:
 	(cpu_addr == 8'h43)?scx:
 	(cpu_addr == 8'h44)?ly:
-	(cpu_addr == 8'h45)?lyc:
+	(cpu_addr == 8'h45)?lyc_rd:
 	(cpu_addr == 8'h46)?dma:
 	(cpu_addr == 8'h47)?bgp:
 	(cpu_addr == 8'h48)?obp0:
