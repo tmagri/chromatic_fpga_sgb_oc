@@ -1187,7 +1187,7 @@ sgb_snd sgb_snd_inst (
 // corruption.
 // Tuning (total gain vs BRR full scale): 2 = -12dB (too loud on the
 // chromatic codec path), 3 = -18dB, 4 = -24dB, 5 = -30dB.
-localparam [2:0] SGB_PCM_SHIFT = 3'd5;
+localparam [2:0] SGB_PCM_SHIFT = 3'd6;
 wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> SGB_PCM_SHIFT) : 16'd0;
 
 // Built-in SFX bank PCM (sgb_sfx_play). The decoded BRR is full-scale SNES-DSP

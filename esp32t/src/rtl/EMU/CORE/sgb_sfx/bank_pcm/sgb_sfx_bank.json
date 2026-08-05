@@ -1,0 +1,66 @@
+{
+ "A1F_SwordSwing.wav": {
+  "record": 0,
+  "offset": 0,
+  "bytes": 22660,
+  "loop_offset": null,
+  "samples": 11330,
+  "rate": 16000
+ },
+ "A26_PictureFloats.wav": {
+  "record": 1,
+  "offset": 22672,
+  "bytes": 27140,
+  "loop_offset": null,
+  "samples": 13570,
+  "rate": 16000
+ },
+ "A30_SmallLaser.wav": {
+  "record": 2,
+  "offset": 49824,
+  "bytes": 17540,
+  "loop_offset": null,
+  "samples": 8770,
+  "rate": 16000
+ },
+ "B01_ApplauseSmall.wav": {
+  "record": 3,
+  "offset": 67376,
+  "bytes": 18400,
+  "loop_offset": 2976,
+  "samples": 9200,
+  "rate": 16000
+ },
+ "B04_Wind.wav": {
+  "record": 4,
+  "offset": 85776,
+  "bytes": 37436,
+  "loop_offset": 15296,
+  "samples": 18718,
+  "rate": 16000
+ },
+ "B07_StormThunder.wav": {
+  "record": 5,
+  "offset": 123216,
+  "bytes": 14428,
+  "loop_offset": 3616,
+  "samples": 7214,
+  "rate": 16000
+ },
+ "B08_LightningB.wav": {
+  "record": 6,
+  "offset": 137648,
+  "bytes": 84600,
+  "loop_offset": 79936,
+  "samples": 42300,
+  "rate": 16000
+ },
+ "B0B_Wave.wav": {
+  "record": 7,
+  "offset": 222256,
+  "bytes": 89220,
+  "loop_offset": null,
+  "samples": 44610,
+  "rate": 16000
+ }
+}

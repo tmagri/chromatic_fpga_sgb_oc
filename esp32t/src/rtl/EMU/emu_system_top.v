@@ -13,6 +13,7 @@ module emu_system_top
     input [63:0]        paletteOBJ1In,
     input               paletteOff,
     input [1:0]         oc_lvl,      // 0=1x  1=2x  2=4x
+    input               sgb_disabled, // user setting: 1 = force GB mode; 0 (default) = SGB enabled
     output              gbc_mode,
     output              isSGB_out,   // SGB game detected
     output [63:0]       gpd,
@@ -270,16 +271,31 @@ module emu_system_top
     wire sgb_pal_ready; // SGB engine has a live palette (boot blackout gate)
     wire sgb_trn_active; // SGB transfer (PAL_TRN etc.) in progress
 
+    // User-facing "Enable SGB mode" setting (MCU OSD, default enabled):
+    // sgb_disabled = system_control[9], so at reset/power-on (before the
+    // first SysCtrl message arrives) the engine is ENABLED -- matching the
+    // setting's default. The disable takes effect combinationally: forcing
+    // GB mode disarms the engine immediately, and re-enabling re-arms it the
+    // same cycle (the snooped header flags that feed isSGB_game persist for
+    // the whole session until gbreset, so the latch re-fires without needing
+    // a re-snoop). Note a clean in-game mode swap still generally needs a
+    // reset, since the running software does not re-initialise SGB state --
+    // but the hardware enable/disable itself is immediate.
+    wire sgb_enabled = ~sgb_disabled;
+
     // Sticky across gbreset on purpose: the EverDrive resumes games with a
     // no-reset jump, so the resumed game must keep its engine. The EDGB OS
     // header is CGB-flagged ($0143=$80, title "GBXOS"), so the OS boot
     // itself never latches the flag -- the OS menu simply runs with the
     // engine armed (as it would on real SGB hardware), and the boot
     // blackout logic below handles the stale OS palette at resume.
-    // Cleared only on reset_n (cart removal / PLL unlock / power).
+    // Cleared on reset_n (cart removal / PLL unlock / power) or when the
+    // user switches SGB mode off (sgb_disabled).
     always @(posedge hclk or negedge reset_n) begin
         if (~reset_n)
             sgb_detected <= 1'b0;
+        else if (sgb_disabled)
+            sgb_detected <= 1'b0;   // user forced GB mode: disarm the engine
         else if (isSGB_game && !isGBC_game)
             sgb_detected <= 1'b1;   // latch when the header is snooped during boot
     end
@@ -638,9 +654,12 @@ module emu_system_top
     // the same session — without it, sgb_detected is still 1 when the OS
     // boots and the menu sits black for the full ~4 s SGB palette-gated
     // timeout. GB/GBC games likewise get the fast path regardless of prior
-    // session state.
+    // session state. Also forced low when SGB mode is disabled so the boot
+    // blackout uses the fast 60f path (and no SGB palette overlay applies).
     always @(posedge hclk) begin
         if (gbreset_ungated || gbreset || (~prev_boot_rom_enabled && boot_rom_enabled))
+            boot_sgb <= 1'b0;
+        else if (~sgb_enabled)
             boot_sgb <= 1'b0;
         else if (isSGB_game && !isGBC_game)
             boot_sgb <= 1'b1;

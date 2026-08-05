@@ -41,10 +41,10 @@ module tb_sgb_sfx_play;
         .hPcmValid(hPcmValid), .hPcm(hPcm), .hPlaying(hPlaying)
     );
 
-    // ---- PSRAM contents: the trimmed 7-effect bank ----
-    localparam BANK_WORDS = 43904;                 // Kirby2 8-effect bank = 87808 bytes
+    // ---- PSRAM contents: the uncompressed Kirby2 8-effect PCM bank ----
+    localparam BANK_WORDS = 155808;                // 311616 bytes
     reg [15:0] psram [0:BANK_WORDS-1];
-    initial $readmemh("sgb_sfx/bank7/sim_bank.hex", psram);
+    initial $readmemh("sgb_sfx/bank_pcm/sim_bank.hex", psram);
 
     function [15:0] rd_word;
         input [22:0] a;
@@ -231,26 +231,26 @@ module tb_sgb_sfx_play;
         //   one-shots: 0=A1F 1=A26 2=A30 7=B0B(Wave)
         //   loops:     3=B01 4=B04 5=B07 6=B08
         $display("== one-shot effects ==");
-        play_oneshot(3'd0, 3000); dump_raw("sgb_sfx/bank7/tb_fx0.raw");
-        play_oneshot(3'd1, 3000); dump_raw("sgb_sfx/bank7/tb_fx1.raw");
-        play_oneshot(3'd2, 3000); dump_raw("sgb_sfx/bank7/tb_fx2.raw");
-        play_oneshot(3'd7, 3000); dump_raw("sgb_sfx/bank7/tb_fx7.raw");
+        play_oneshot(3'd0, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx0.raw");
+        play_oneshot(3'd1, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx1.raw");
+        play_oneshot(3'd2, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx2.raw");
+        play_oneshot(3'd7, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx7.raw");
 
         // capture far enough to cross the first-pass->loop boundary, which
         // exercises the odd-offset loop re-alignment (skip_wrap).
         $display("== loop effects (capture first pass + loop tail, then stop) ==");
-        play_loop_for(3'd3, 12000, 3000); dump_raw("sgb_sfx/bank7/tb_fx3.raw");
-        play_loop_for(3'd4, 30000, 3000); dump_raw("sgb_sfx/bank7/tb_fx4.raw");
-        play_loop_for(3'd5, 14000, 3000); dump_raw("sgb_sfx/bank7/tb_fx5.raw");
-        play_loop_for(3'd6, 43000, 3000); dump_raw("sgb_sfx/bank7/tb_fx6.raw");
+        play_loop_for(3'd3, 12000, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx3.raw");
+        play_loop_for(3'd4, 30000, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx4.raw");
+        play_loop_for(3'd5, 14000, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx5.raw");
+        play_loop_for(3'd6, 43000, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx6.raw");
 
         $display("== interrupt/retrigger ==");
         // one-shot (A1F) interrupted by one-shot (A30)
-        play_interrupt(3'd0, 3'd2, 2000, 8784, 3000);
-        dump_raw_from("sgb_sfx/bank7/tb_fxR1.raw", mark);
+        play_interrupt(3'd0, 3'd2, 2000, 8770, 3000);
+        dump_raw_from("sgb_sfx/bank_pcm/tb_fxR1.raw", mark);
         // looping effect (B04 Wind) interrupted by one-shot (A26)
-        play_interrupt(3'd4, 3'd1, 20000, 13584, 3000);
-        dump_raw_from("sgb_sfx/bank7/tb_fxR2.raw", mark);
+        play_interrupt(3'd4, 3'd1, 20000, 13570, 3000);
+        dump_raw_from("sgb_sfx/bank_pcm/tb_fxR2.raw", mark);
 
         $display("DONE");
         $finish;

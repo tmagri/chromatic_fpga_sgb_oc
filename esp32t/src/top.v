@@ -314,7 +314,7 @@ module top #(parameter ISSIMU=0)
         .voltageLow(low_battery),
         .lowBattDispMode(system_control[14:13]),
         .showTimer(1'b0), //system_control[8]),
-        .runTimer(system_control[9]),
+        .runTimer(1'b0), //system_control[9]),  // bit 9 repurposed: SGB mode disable (u_emu_system_top.sgb_disabled)
         .resetTimer(system_control[10]),
         .gSecondEna(secondEna),
         .gPercentEna(percentEna),
@@ -481,6 +481,10 @@ module top #(parameter ISSIMU=0)
         // oc_lvl: bits [15] and [8] of system_control
         // 2'b00=1x(off)  2'b01=2x  2'b10=4x
         .oc_lvl({system_control[15], system_control[8]}),
+        // SGB mode disable: bit [9] of system_control ("Enable SGB mode"
+        // setting in the MCU OSD). 0 (default/reset) = SGB enabled,
+        // 1 = force GB mode even for SGB-flagged carts.
+        .sgb_disabled(system_control[9]),
         .gbc_mode(gbc_mode),
         .isSGB_out(isSGB_out),
         .gpd(gpd),
