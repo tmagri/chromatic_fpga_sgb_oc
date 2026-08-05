@@ -1191,11 +1191,12 @@ localparam [2:0] SGB_PCM_SHIFT = 3'd5;
 wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> SGB_PCM_SHIFT) : 16'd0;
 
 // Built-in SFX bank PCM (sgb_sfx_play). The decoded BRR is full-scale SNES-DSP
-// output rendered at full master volume, so attenuate like sgb_pcm. hPcm is a
-// sample-and-hold that the player drives to 0 when idle, so no extra gating is
-// needed beyond isSGB. Slightly louder than the custom BRR (shift 4 vs 5) since
-// these are prominent UI/ambient effects; tune to taste.
-localparam [2:0] SFX_PCM_SHIFT = 3'd4;
+// output rendered at full master volume, so it needs heavy attenuation. hPcm is
+// a sample-and-hold that the player drives to 0 when idle, so no extra gating is
+// needed beyond isSGB. These are meant to sit in the background as subtle ambience,
+// so attenuate well below the custom BRR (shift 6 = /64 = -36dB). Tune to taste:
+// each +1 halves the volume (5 = /32, 6 = /64, 7 = /128).
+localparam [2:0] SFX_PCM_SHIFT = 3'd6;
 wire signed [15:0] sfx_pcm_att = isSGB ? ($signed(sfx_pcm) >>> SFX_PCM_SHIFT) : 16'd0;
 
 wire [17:0] mix_l = {{2{apu_l[15]}}, apu_l}
