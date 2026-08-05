@@ -1,0 +1,570 @@
+{
+ "A02_GameOver.brr": {
+  "record": 0,
+  "offset": 0,
+  "bytes": 13041,
+  "loop_offset": null,
+  "samples": 23170,
+  "rate": 16000
+ },
+ "A03_Drop.brr": {
+  "record": 1,
+  "offset": 13056,
+  "bytes": 29241,
+  "loop_offset": null,
+  "samples": 51971,
+  "rate": 16000
+ },
+ "A04_OkA.brr": {
+  "record": 2,
+  "offset": 42304,
+  "bytes": 6561,
+  "loop_offset": null,
+  "samples": 11649,
+  "rate": 16000
+ },
+ "A05_OkB.brr": {
+  "record": 3,
+  "offset": 48880,
+  "bytes": 7281,
+  "loop_offset": null,
+  "samples": 12929,
+  "rate": 16000
+ },
+ "A06_SelectA.brr": {
+  "record": 4,
+  "offset": 56176,
+  "bytes": 8721,
+  "loop_offset": null,
+  "samples": 15489,
+  "rate": 16000
+ },
+ "A07_SelectB.brr": {
+  "record": 5,
+  "offset": 64912,
+  "bytes": 4212,
+  "loop_offset": null,
+  "samples": 7488,
+  "rate": 16000
+ },
+ "A08_SelectC.brr": {
+  "record": 6,
+  "offset": 69136,
+  "bytes": 4572,
+  "loop_offset": null,
+  "samples": 8128,
+  "rate": 16000
+ },
+ "A09_MistakeBuzzer.brr": {
+  "record": 7,
+  "offset": 73712,
+  "bytes": 6921,
+  "loop_offset": null,
+  "samples": 12289,
+  "rate": 16000
+ },
+ "A0A_CatchItem.brr": {
+  "record": 8,
+  "offset": 80640,
+  "bytes": 5301,
+  "loop_offset": null,
+  "samples": 9409,
+  "rate": 16000
+ },
+ "A0B_GateSqueak.brr": {
+  "record": 9,
+  "offset": 85952,
+  "bytes": 5292,
+  "loop_offset": null,
+  "samples": 9408,
+  "rate": 16000
+ },
+ "A0C_ExplosionSmall.brr": {
+  "record": 10,
+  "offset": 91248,
+  "bytes": 20241,
+  "loop_offset": null,
+  "samples": 35971,
+  "rate": 16000
+ },
+ "A0D_ExplosionMedium.brr": {
+  "record": 11,
+  "offset": 111504,
+  "bytes": 45981,
+  "loop_offset": null,
+  "samples": 81734,
+  "rate": 16000
+ },
+ "A0E_ExplosionLarge.brr": {
+  "record": 12,
+  "offset": 157488,
+  "bytes": 54441,
+  "loop_offset": null,
+  "samples": 96776,
+  "rate": 16000
+ },
+ "A0F_AttackedA.brr": {
+  "record": 13,
+  "offset": 211936,
+  "bytes": 7461,
+  "loop_offset": null,
+  "samples": 13249,
+  "rate": 16000
+ },
+ "A10_AttackedB.brr": {
+  "record": 14,
+  "offset": 219408,
+  "bytes": 6012,
+  "loop_offset": null,
+  "samples": 10688,
+  "rate": 16000
+ },
+ "A11_HitPunchA.brr": {
+  "record": 15,
+  "offset": 225424,
+  "bytes": 25101,
+  "loop_offset": null,
+  "samples": 44612,
+  "rate": 16000
+ },
+ "A12_HitPunchB.brr": {
+  "record": 16,
+  "offset": 250528,
+  "bytes": 18981,
+  "loop_offset": null,
+  "samples": 33731,
+  "rate": 16000
+ },
+ "A13_BreathInAir.brr": {
+  "record": 17,
+  "offset": 269520,
+  "bytes": 11061,
+  "loop_offset": null,
+  "samples": 19649,
+  "rate": 16000
+ },
+ "A14_RocketProjectileA.brr": {
+  "record": 18,
+  "offset": 280592,
+  "bytes": 18081,
+  "loop_offset": null,
+  "samples": 32131,
+  "rate": 16000
+ },
+ "A15_RocketProjectileB.brr": {
+  "record": 19,
+  "offset": 298688,
+  "bytes": 37521,
+  "loop_offset": null,
+  "samples": 66693,
+  "rate": 16000
+ },
+ "A16_EscapingBubble.brr": {
+  "record": 20,
+  "offset": 336224,
+  "bytes": 13041,
+  "loop_offset": null,
+  "samples": 23169,
+  "rate": 16000
+ },
+ "A17_Jump.brr": {
+  "record": 21,
+  "offset": 349280,
+  "bytes": 4941,
+  "loop_offset": null,
+  "samples": 8769,
+  "rate": 16000
+ },
+ "A18_FastJump.brr": {
+  "record": 22,
+  "offset": 354224,
+  "bytes": 4212,
+  "loop_offset": null,
+  "samples": 7488,
+  "rate": 16000
+ },
+ "A19_JetTakeoff.brr": {
+  "record": 23,
+  "offset": 358448,
+  "bytes": 42201,
+  "loop_offset": null,
+  "samples": 75013,
+  "rate": 16000
+ },
+ "A1A_JetLanding.brr": {
+  "record": 24,
+  "offset": 400656,
+  "bytes": 26181,
+  "loop_offset": null,
+  "samples": 46531,
+  "rate": 16000
+ },
+ "A1B_CupBreaking.brr": {
+  "record": 25,
+  "offset": 426848,
+  "bytes": 8361,
+  "loop_offset": null,
+  "samples": 14849,
+  "rate": 16000
+ },
+ "A1C_GlassBreaking.brr": {
+  "record": 26,
+  "offset": 435216,
+  "bytes": 19161,
+  "loop_offset": null,
+  "samples": 34050,
+  "rate": 16000
+ },
+ "A1D_LevelUp.brr": {
+  "record": 27,
+  "offset": 454384,
+  "bytes": 11601,
+  "loop_offset": null,
+  "samples": 20610,
+  "rate": 16000
+ },
+ "A1E_InsertAir.brr": {
+  "record": 28,
+  "offset": 466000,
+  "bytes": 4752,
+  "loop_offset": null,
+  "samples": 8448,
+  "rate": 16000
+ },
+ "A1F_SwordSwing.brr": {
+  "record": 29,
+  "offset": 470752,
+  "bytes": 6381,
+  "loop_offset": null,
+  "samples": 11329,
+  "rate": 16000
+ },
+ "A20_WaterFalling.brr": {
+  "record": 30,
+  "offset": 477136,
+  "bytes": 10161,
+  "loop_offset": null,
+  "samples": 18049,
+  "rate": 16000
+ },
+ "A21_Fire.brr": {
+  "record": 31,
+  "offset": 487312,
+  "bytes": 6012,
+  "loop_offset": null,
+  "samples": 10688,
+  "rate": 16000
+ },
+ "A22_WallCollapsing.brr": {
+  "record": 32,
+  "offset": 493328,
+  "bytes": 4941,
+  "loop_offset": null,
+  "samples": 8769,
+  "rate": 16000
+ },
+ "A23_Cancel.brr": {
+  "record": 33,
+  "offset": 498272,
+  "bytes": 8901,
+  "loop_offset": null,
+  "samples": 15809,
+  "rate": 16000
+ },
+ "A24_Walking.brr": {
+  "record": 34,
+  "offset": 507184,
+  "bytes": 4212,
+  "loop_offset": null,
+  "samples": 7488,
+  "rate": 16000
+ },
+ "A25_BlockingStrike.brr": {
+  "record": 35,
+  "offset": 511408,
+  "bytes": 4212,
+  "loop_offset": null,
+  "samples": 7488,
+  "rate": 16000
+ },
+ "A26_PictureFloats.brr": {
+  "record": 36,
+  "offset": 515632,
+  "bytes": 7641,
+  "loop_offset": null,
+  "samples": 13569,
+  "rate": 16000
+ },
+ "A27_FadeIn.brr": {
+  "record": 37,
+  "offset": 523280,
+  "bytes": 11061,
+  "loop_offset": null,
+  "samples": 19650,
+  "rate": 16000
+ },
+ "A28_FadeOut.brr": {
+  "record": 38,
+  "offset": 534352,
+  "bytes": 11061,
+  "loop_offset": null,
+  "samples": 19649,
+  "rate": 16000
+ },
+ "A29_WindowOpen.brr": {
+  "record": 39,
+  "offset": 545424,
+  "bytes": 6021,
+  "loop_offset": null,
+  "samples": 10689,
+  "rate": 16000
+ },
+ "A2A_WindowClose.brr": {
+  "record": 40,
+  "offset": 551456,
+  "bytes": 4752,
+  "loop_offset": null,
+  "samples": 8448,
+  "rate": 16000
+ },
+ "A2B_BigLaser.brr": {
+  "record": 41,
+  "offset": 556208,
+  "bytes": 17541,
+  "loop_offset": null,
+  "samples": 31170,
+  "rate": 16000
+ },
+ "A2C_StoneGate.brr": {
+  "record": 42,
+  "offset": 573760,
+  "bytes": 10521,
+  "loop_offset": null,
+  "samples": 18690,
+  "rate": 16000
+ },
+ "A2D_Teleportation.brr": {
+  "record": 43,
+  "offset": 584288,
+  "bytes": 36621,
+  "loop_offset": null,
+  "samples": 65092,
+  "rate": 16000
+ },
+ "A2E_LightningA.brr": {
+  "record": 44,
+  "offset": 620912,
+  "bytes": 54441,
+  "loop_offset": null,
+  "samples": 96775,
+  "rate": 16000
+ },
+ "A2F_EarthquakeA.brr": {
+  "record": 45,
+  "offset": 675360,
+  "bytes": 54441,
+  "loop_offset": null,
+  "samples": 96776,
+  "rate": 16000
+ },
+ "A30_SmallLaser.brr": {
+  "record": 46,
+  "offset": 729808,
+  "bytes": 4401,
+  "loop_offset": null,
+  "samples": 7809,
+  "rate": 16000
+ },
+ "B01_ApplauseSmall.brr": {
+  "record": 47,
+  "offset": 734224,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80773,
+  "rate": 16000
+ },
+ "B02_ApplauseMedium.brr": {
+  "record": 48,
+  "offset": 779680,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B03_ApplauseLarge.brr": {
+  "record": 49,
+  "offset": 825136,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80775,
+  "rate": 16000
+ },
+ "B04_Wind.brr": {
+  "record": 50,
+  "offset": 870592,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B05_Rain.brr": {
+  "record": 51,
+  "offset": 916048,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B06_Storm.brr": {
+  "record": 52,
+  "offset": 961504,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B07_StormThunder.brr": {
+  "record": 53,
+  "offset": 1006960,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80775,
+  "rate": 16000
+ },
+ "B08_LightningB.brr": {
+  "record": 54,
+  "offset": 1052416,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B09_EarthquakeB.brr": {
+  "record": 55,
+  "offset": 1097872,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B0A_Avalanche.brr": {
+  "record": 56,
+  "offset": 1143328,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80775,
+  "rate": 16000
+ },
+ "B0B_Wave.brr": {
+  "record": 57,
+  "offset": 1188784,
+  "bytes": 22041,
+  "loop_offset": 0,
+  "samples": 39170,
+  "rate": 16000
+ },
+ "B0C_River.brr": {
+  "record": 58,
+  "offset": 1210832,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B0D_Waterfall.brr": {
+  "record": 59,
+  "offset": 1256288,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B0E_SmallCharRunning.brr": {
+  "record": 60,
+  "offset": 1301744,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B0F_HorseRunning.brr": {
+  "record": 61,
+  "offset": 1347200,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80773,
+  "rate": 16000
+ },
+ "B11_ApproachingCar.brr": {
+  "record": 62,
+  "offset": 1392656,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B12_JetFlying.brr": {
+  "record": 63,
+  "offset": 1438112,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B13_UfoFlying.brr": {
+  "record": 64,
+  "offset": 1483568,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B14_ElectromagneticWaves.brr": {
+  "record": 65,
+  "offset": 1529024,
+  "bytes": 45441,
+  "loop_offset": 0,
+  "samples": 80774,
+  "rate": 16000
+ },
+ "B15_ScoreUp.brr": {
+  "record": 66,
+  "offset": 1574480,
+  "bytes": 54441,
+  "loop_offset": 0,
+  "samples": 96775,
+  "rate": 16000
+ },
+ "B16_FireB.brr": {
+  "record": 67,
+  "offset": 1628928,
+  "bytes": 14121,
+  "loop_offset": 0,
+  "samples": 25089,
+  "rate": 16000
+ },
+ "B17_CameraShutter.brr": {
+  "record": 68,
+  "offset": 1643056,
+  "bytes": 4392,
+  "loop_offset": 0,
+  "samples": 7808,
+  "rate": 16000
+ },
+ "B18_WriteFormanto.brr": {
+  "record": 69,
+  "offset": 1647456,
+  "bytes": 6021,
+  "loop_offset": 0,
+  "samples": 10689,
+  "rate": 16000
+ },
+ "B19_ShowUpTitle.brr": {
+  "record": 70,
+  "offset": 1653488,
+  "bytes": 6552,
+  "loop_offset": 0,
+  "samples": 11648,
+  "rate": 16000
+ }
+}

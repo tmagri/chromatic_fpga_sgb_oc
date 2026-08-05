@@ -1,0 +1,77 @@
+// Auto-generated from pre-compressed BRR files.
+// Bank file: sgb_sfx_bank.bin. Record = 16 bytes: {u32 offset,u32 length,u32 loop_offset,u32 sample_count}.
+// loop_offset = byte offset of loop-start block within the stream, 0xFFFFFFFF = one-shot.
+`define SGB_SFX_COUNT 71
+`define SGB_SFX_TABLE_OFF 1660048
+`define SGB_SFX_BANK_BYTES 1661184
+// record 0: A02_GameOver.brr offset=0 bytes=13041 loop=0xffffffff samples=23170
+// record 1: A03_Drop.brr offset=13056 bytes=29241 loop=0xffffffff samples=51971
+// record 2: A04_OkA.brr offset=42304 bytes=6561 loop=0xffffffff samples=11649
+// record 3: A05_OkB.brr offset=48880 bytes=7281 loop=0xffffffff samples=12929
+// record 4: A06_SelectA.brr offset=56176 bytes=8721 loop=0xffffffff samples=15489
+// record 5: A07_SelectB.brr offset=64912 bytes=4212 loop=0xffffffff samples=7488
+// record 6: A08_SelectC.brr offset=69136 bytes=4572 loop=0xffffffff samples=8128
+// record 7: A09_MistakeBuzzer.brr offset=73712 bytes=6921 loop=0xffffffff samples=12289
+// record 8: A0A_CatchItem.brr offset=80640 bytes=5301 loop=0xffffffff samples=9409
+// record 9: A0B_GateSqueak.brr offset=85952 bytes=5292 loop=0xffffffff samples=9408
+// record 10: A0C_ExplosionSmall.brr offset=91248 bytes=20241 loop=0xffffffff samples=35971
+// record 11: A0D_ExplosionMedium.brr offset=111504 bytes=45981 loop=0xffffffff samples=81734
+// record 12: A0E_ExplosionLarge.brr offset=157488 bytes=54441 loop=0xffffffff samples=96776
+// record 13: A0F_AttackedA.brr offset=211936 bytes=7461 loop=0xffffffff samples=13249
+// record 14: A10_AttackedB.brr offset=219408 bytes=6012 loop=0xffffffff samples=10688
+// record 15: A11_HitPunchA.brr offset=225424 bytes=25101 loop=0xffffffff samples=44612
+// record 16: A12_HitPunchB.brr offset=250528 bytes=18981 loop=0xffffffff samples=33731
+// record 17: A13_BreathInAir.brr offset=269520 bytes=11061 loop=0xffffffff samples=19649
+// record 18: A14_RocketProjectileA.brr offset=280592 bytes=18081 loop=0xffffffff samples=32131
+// record 19: A15_RocketProjectileB.brr offset=298688 bytes=37521 loop=0xffffffff samples=66693
+// record 20: A16_EscapingBubble.brr offset=336224 bytes=13041 loop=0xffffffff samples=23169
+// record 21: A17_Jump.brr offset=349280 bytes=4941 loop=0xffffffff samples=8769
+// record 22: A18_FastJump.brr offset=354224 bytes=4212 loop=0xffffffff samples=7488
+// record 23: A19_JetTakeoff.brr offset=358448 bytes=42201 loop=0xffffffff samples=75013
+// record 24: A1A_JetLanding.brr offset=400656 bytes=26181 loop=0xffffffff samples=46531
+// record 25: A1B_CupBreaking.brr offset=426848 bytes=8361 loop=0xffffffff samples=14849
+// record 26: A1C_GlassBreaking.brr offset=435216 bytes=19161 loop=0xffffffff samples=34050
+// record 27: A1D_LevelUp.brr offset=454384 bytes=11601 loop=0xffffffff samples=20610
+// record 28: A1E_InsertAir.brr offset=466000 bytes=4752 loop=0xffffffff samples=8448
+// record 29: A1F_SwordSwing.brr offset=470752 bytes=6381 loop=0xffffffff samples=11329
+// record 30: A20_WaterFalling.brr offset=477136 bytes=10161 loop=0xffffffff samples=18049
+// record 31: A21_Fire.brr offset=487312 bytes=6012 loop=0xffffffff samples=10688
+// record 32: A22_WallCollapsing.brr offset=493328 bytes=4941 loop=0xffffffff samples=8769
+// record 33: A23_Cancel.brr offset=498272 bytes=8901 loop=0xffffffff samples=15809
+// record 34: A24_Walking.brr offset=507184 bytes=4212 loop=0xffffffff samples=7488
+// record 35: A25_BlockingStrike.brr offset=511408 bytes=4212 loop=0xffffffff samples=7488
+// record 36: A26_PictureFloats.brr offset=515632 bytes=7641 loop=0xffffffff samples=13569
+// record 37: A27_FadeIn.brr offset=523280 bytes=11061 loop=0xffffffff samples=19650
+// record 38: A28_FadeOut.brr offset=534352 bytes=11061 loop=0xffffffff samples=19649
+// record 39: A29_WindowOpen.brr offset=545424 bytes=6021 loop=0xffffffff samples=10689
+// record 40: A2A_WindowClose.brr offset=551456 bytes=4752 loop=0xffffffff samples=8448
+// record 41: A2B_BigLaser.brr offset=556208 bytes=17541 loop=0xffffffff samples=31170
+// record 42: A2C_StoneGate.brr offset=573760 bytes=10521 loop=0xffffffff samples=18690
+// record 43: A2D_Teleportation.brr offset=584288 bytes=36621 loop=0xffffffff samples=65092
+// record 44: A2E_LightningA.brr offset=620912 bytes=54441 loop=0xffffffff samples=96775
+// record 45: A2F_EarthquakeA.brr offset=675360 bytes=54441 loop=0xffffffff samples=96776
+// record 46: A30_SmallLaser.brr offset=729808 bytes=4401 loop=0xffffffff samples=7809
+// record 47: B01_ApplauseSmall.brr offset=734224 bytes=45441 loop=0x0 samples=80773
+// record 48: B02_ApplauseMedium.brr offset=779680 bytes=45441 loop=0x0 samples=80774
+// record 49: B03_ApplauseLarge.brr offset=825136 bytes=45441 loop=0x0 samples=80775
+// record 50: B04_Wind.brr offset=870592 bytes=45441 loop=0x0 samples=80774
+// record 51: B05_Rain.brr offset=916048 bytes=45441 loop=0x0 samples=80774
+// record 52: B06_Storm.brr offset=961504 bytes=45441 loop=0x0 samples=80774
+// record 53: B07_StormThunder.brr offset=1006960 bytes=45441 loop=0x0 samples=80775
+// record 54: B08_LightningB.brr offset=1052416 bytes=45441 loop=0x0 samples=80774
+// record 55: B09_EarthquakeB.brr offset=1097872 bytes=45441 loop=0x0 samples=80774
+// record 56: B0A_Avalanche.brr offset=1143328 bytes=45441 loop=0x0 samples=80775
+// record 57: B0B_Wave.brr offset=1188784 bytes=22041 loop=0x0 samples=39170
+// record 58: B0C_River.brr offset=1210832 bytes=45441 loop=0x0 samples=80774
+// record 59: B0D_Waterfall.brr offset=1256288 bytes=45441 loop=0x0 samples=80774
+// record 60: B0E_SmallCharRunning.brr offset=1301744 bytes=45441 loop=0x0 samples=80774
+// record 61: B0F_HorseRunning.brr offset=1347200 bytes=45441 loop=0x0 samples=80773
+// record 62: B11_ApproachingCar.brr offset=1392656 bytes=45441 loop=0x0 samples=80774
+// record 63: B12_JetFlying.brr offset=1438112 bytes=45441 loop=0x0 samples=80774
+// record 64: B13_UfoFlying.brr offset=1483568 bytes=45441 loop=0x0 samples=80774
+// record 65: B14_ElectromagneticWaves.brr offset=1529024 bytes=45441 loop=0x0 samples=80774
+// record 66: B15_ScoreUp.brr offset=1574480 bytes=54441 loop=0x0 samples=96775
+// record 67: B16_FireB.brr offset=1628928 bytes=14121 loop=0x0 samples=25089
+// record 68: B17_CameraShutter.brr offset=1643056 bytes=4392 loop=0x0 samples=7808
+// record 69: B18_WriteFormanto.brr offset=1647456 bytes=6021 loop=0x0 samples=10689
+// record 70: B19_ShowUpTitle.brr offset=1653488 bytes=6552 loop=0x0 samples=11648

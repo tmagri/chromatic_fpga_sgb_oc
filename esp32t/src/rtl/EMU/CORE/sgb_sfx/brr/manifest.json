@@ -1,0 +1,499 @@
+{
+ "A02_GameOver.brr": {
+  "samples": 23170,
+  "rate": 16000,
+  "brr_bytes": 13041,
+  "loop": false,
+  "duration_ms": 1448
+ },
+ "A03_Drop.brr": {
+  "samples": 51971,
+  "rate": 16000,
+  "brr_bytes": 29241,
+  "loop": false,
+  "duration_ms": 3248
+ },
+ "A04_OkA.brr": {
+  "samples": 11649,
+  "rate": 16000,
+  "brr_bytes": 6561,
+  "loop": false,
+  "duration_ms": 728
+ },
+ "A05_OkB.brr": {
+  "samples": 12929,
+  "rate": 16000,
+  "brr_bytes": 7281,
+  "loop": false,
+  "duration_ms": 808
+ },
+ "A06_SelectA.brr": {
+  "samples": 15489,
+  "rate": 16000,
+  "brr_bytes": 8721,
+  "loop": false,
+  "duration_ms": 968
+ },
+ "A07_SelectB.brr": {
+  "samples": 7488,
+  "rate": 16000,
+  "brr_bytes": 4212,
+  "loop": false,
+  "duration_ms": 468
+ },
+ "A08_SelectC.brr": {
+  "samples": 8128,
+  "rate": 16000,
+  "brr_bytes": 4572,
+  "loop": false,
+  "duration_ms": 508
+ },
+ "A09_MistakeBuzzer.brr": {
+  "samples": 12289,
+  "rate": 16000,
+  "brr_bytes": 6921,
+  "loop": false,
+  "duration_ms": 768
+ },
+ "A0A_CatchItem.brr": {
+  "samples": 9409,
+  "rate": 16000,
+  "brr_bytes": 5301,
+  "loop": false,
+  "duration_ms": 588
+ },
+ "A0B_GateSqueak.brr": {
+  "samples": 9408,
+  "rate": 16000,
+  "brr_bytes": 5292,
+  "loop": false,
+  "duration_ms": 588
+ },
+ "A0C_ExplosionSmall.brr": {
+  "samples": 35971,
+  "rate": 16000,
+  "brr_bytes": 20241,
+  "loop": false,
+  "duration_ms": 2248
+ },
+ "A0D_ExplosionMedium.brr": {
+  "samples": 81734,
+  "rate": 16000,
+  "brr_bytes": 45981,
+  "loop": false,
+  "duration_ms": 5108
+ },
+ "A0E_ExplosionLarge.brr": {
+  "samples": 96776,
+  "rate": 16000,
+  "brr_bytes": 54441,
+  "loop": false,
+  "duration_ms": 6048
+ },
+ "A0F_AttackedA.brr": {
+  "samples": 13249,
+  "rate": 16000,
+  "brr_bytes": 7461,
+  "loop": false,
+  "duration_ms": 828
+ },
+ "A10_AttackedB.brr": {
+  "samples": 10688,
+  "rate": 16000,
+  "brr_bytes": 6012,
+  "loop": false,
+  "duration_ms": 668
+ },
+ "A11_HitPunchA.brr": {
+  "samples": 44612,
+  "rate": 16000,
+  "brr_bytes": 25101,
+  "loop": false,
+  "duration_ms": 2788
+ },
+ "A12_HitPunchB.brr": {
+  "samples": 33731,
+  "rate": 16000,
+  "brr_bytes": 18981,
+  "loop": false,
+  "duration_ms": 2108
+ },
+ "A13_BreathInAir.brr": {
+  "samples": 19649,
+  "rate": 16000,
+  "brr_bytes": 11061,
+  "loop": false,
+  "duration_ms": 1228
+ },
+ "A14_RocketProjectileA.brr": {
+  "samples": 32131,
+  "rate": 16000,
+  "brr_bytes": 18081,
+  "loop": false,
+  "duration_ms": 2008
+ },
+ "A15_RocketProjectileB.brr": {
+  "samples": 66693,
+  "rate": 16000,
+  "brr_bytes": 37521,
+  "loop": false,
+  "duration_ms": 4168
+ },
+ "A16_EscapingBubble.brr": {
+  "samples": 23169,
+  "rate": 16000,
+  "brr_bytes": 13041,
+  "loop": false,
+  "duration_ms": 1448
+ },
+ "A17_Jump.brr": {
+  "samples": 8769,
+  "rate": 16000,
+  "brr_bytes": 4941,
+  "loop": false,
+  "duration_ms": 548
+ },
+ "A18_FastJump.brr": {
+  "samples": 7488,
+  "rate": 16000,
+  "brr_bytes": 4212,
+  "loop": false,
+  "duration_ms": 468
+ },
+ "A19_JetTakeoff.brr": {
+  "samples": 75013,
+  "rate": 16000,
+  "brr_bytes": 42201,
+  "loop": false,
+  "duration_ms": 4688
+ },
+ "A1A_JetLanding.brr": {
+  "samples": 46531,
+  "rate": 16000,
+  "brr_bytes": 26181,
+  "loop": false,
+  "duration_ms": 2908
+ },
+ "A1B_CupBreaking.brr": {
+  "samples": 14849,
+  "rate": 16000,
+  "brr_bytes": 8361,
+  "loop": false,
+  "duration_ms": 928
+ },
+ "A1C_GlassBreaking.brr": {
+  "samples": 34050,
+  "rate": 16000,
+  "brr_bytes": 19161,
+  "loop": false,
+  "duration_ms": 2128
+ },
+ "A1D_LevelUp.brr": {
+  "samples": 20610,
+  "rate": 16000,
+  "brr_bytes": 11601,
+  "loop": false,
+  "duration_ms": 1288
+ },
+ "A1E_InsertAir.brr": {
+  "samples": 8448,
+  "rate": 16000,
+  "brr_bytes": 4752,
+  "loop": false,
+  "duration_ms": 528
+ },
+ "A1F_SwordSwing.brr": {
+  "samples": 11329,
+  "rate": 16000,
+  "brr_bytes": 6381,
+  "loop": false,
+  "duration_ms": 708
+ },
+ "A20_WaterFalling.brr": {
+  "samples": 18049,
+  "rate": 16000,
+  "brr_bytes": 10161,
+  "loop": false,
+  "duration_ms": 1128
+ },
+ "A21_Fire.brr": {
+  "samples": 10688,
+  "rate": 16000,
+  "brr_bytes": 6012,
+  "loop": false,
+  "duration_ms": 668
+ },
+ "A22_WallCollapsing.brr": {
+  "samples": 8769,
+  "rate": 16000,
+  "brr_bytes": 4941,
+  "loop": false,
+  "duration_ms": 548
+ },
+ "A23_Cancel.brr": {
+  "samples": 15809,
+  "rate": 16000,
+  "brr_bytes": 8901,
+  "loop": false,
+  "duration_ms": 988
+ },
+ "A24_Walking.brr": {
+  "samples": 7488,
+  "rate": 16000,
+  "brr_bytes": 4212,
+  "loop": false,
+  "duration_ms": 468
+ },
+ "A25_BlockingStrike.brr": {
+  "samples": 7488,
+  "rate": 16000,
+  "brr_bytes": 4212,
+  "loop": false,
+  "duration_ms": 468
+ },
+ "A26_PictureFloats.brr": {
+  "samples": 13569,
+  "rate": 16000,
+  "brr_bytes": 7641,
+  "loop": false,
+  "duration_ms": 848
+ },
+ "A27_FadeIn.brr": {
+  "samples": 19650,
+  "rate": 16000,
+  "brr_bytes": 11061,
+  "loop": false,
+  "duration_ms": 1228
+ },
+ "A28_FadeOut.brr": {
+  "samples": 19649,
+  "rate": 16000,
+  "brr_bytes": 11061,
+  "loop": false,
+  "duration_ms": 1228
+ },
+ "A29_WindowOpen.brr": {
+  "samples": 10689,
+  "rate": 16000,
+  "brr_bytes": 6021,
+  "loop": false,
+  "duration_ms": 668
+ },
+ "A2A_WindowClose.brr": {
+  "samples": 8448,
+  "rate": 16000,
+  "brr_bytes": 4752,
+  "loop": false,
+  "duration_ms": 528
+ },
+ "A2B_BigLaser.brr": {
+  "samples": 31170,
+  "rate": 16000,
+  "brr_bytes": 17541,
+  "loop": false,
+  "duration_ms": 1948
+ },
+ "A2C_StoneGate.brr": {
+  "samples": 18690,
+  "rate": 16000,
+  "brr_bytes": 10521,
+  "loop": false,
+  "duration_ms": 1168
+ },
+ "A2D_Teleportation.brr": {
+  "samples": 65092,
+  "rate": 16000,
+  "brr_bytes": 36621,
+  "loop": false,
+  "duration_ms": 4068
+ },
+ "A2E_LightningA.brr": {
+  "samples": 96775,
+  "rate": 16000,
+  "brr_bytes": 54441,
+  "loop": false,
+  "duration_ms": 6048
+ },
+ "A2F_EarthquakeA.brr": {
+  "samples": 96776,
+  "rate": 16000,
+  "brr_bytes": 54441,
+  "loop": false,
+  "duration_ms": 6048
+ },
+ "A30_SmallLaser.brr": {
+  "samples": 7809,
+  "rate": 16000,
+  "brr_bytes": 4401,
+  "loop": false,
+  "duration_ms": 488
+ },
+ "B01_ApplauseSmall.brr": {
+  "samples": 80773,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B02_ApplauseMedium.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B03_ApplauseLarge.brr": {
+  "samples": 80775,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B04_Wind.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B05_Rain.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B06_Storm.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B07_StormThunder.brr": {
+  "samples": 80775,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B08_LightningB.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B09_EarthquakeB.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B0A_Avalanche.brr": {
+  "samples": 80775,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B0B_Wave.brr": {
+  "samples": 39170,
+  "rate": 16000,
+  "brr_bytes": 22041,
+  "loop": true,
+  "duration_ms": 2448
+ },
+ "B0C_River.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B0D_Waterfall.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B0E_SmallCharRunning.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B0F_HorseRunning.brr": {
+  "samples": 80773,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B11_ApproachingCar.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B12_JetFlying.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B13_UfoFlying.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B14_ElectromagneticWaves.brr": {
+  "samples": 80774,
+  "rate": 16000,
+  "brr_bytes": 45441,
+  "loop": true,
+  "duration_ms": 5048
+ },
+ "B15_ScoreUp.brr": {
+  "samples": 96775,
+  "rate": 16000,
+  "brr_bytes": 54441,
+  "loop": true,
+  "duration_ms": 6048
+ },
+ "B16_FireB.brr": {
+  "samples": 25089,
+  "rate": 16000,
+  "brr_bytes": 14121,
+  "loop": true,
+  "duration_ms": 1568
+ },
+ "B17_CameraShutter.brr": {
+  "samples": 7808,
+  "rate": 16000,
+  "brr_bytes": 4392,
+  "loop": true,
+  "duration_ms": 488
+ },
+ "B18_WriteFormanto.brr": {
+  "samples": 10689,
+  "rate": 16000,
+  "brr_bytes": 6021,
+  "loop": true,
+  "duration_ms": 668
+ },
+ "B19_ShowUpTitle.brr": {
+  "samples": 11648,
+  "rate": 16000,
+  "brr_bytes": 6552,
+  "loop": true,
+  "duration_ms": 728
+ }
+}
