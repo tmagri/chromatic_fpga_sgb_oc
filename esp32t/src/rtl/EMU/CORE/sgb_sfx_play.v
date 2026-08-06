@@ -94,6 +94,27 @@ module sgb_sfx_play #(
         end
     endfunction
 
+    // hClk needs only the one-shot sample count (bytes/2) of the triggered
+    // effect. A narrow 16-bit table here instead of a second copy of the
+    // full 57-bit fx_tab mux tree saves ~40 mux bits of LUTs (the design
+    // routes at ~97% CLS). Keep in sync with fx_tab (byte length / 2).
+    function [15:0] fx_samples;
+        input [2:0] i;
+        begin
+            case (i)
+                3'd0:    fx_samples = 16'd11330;  // A1F 22660/2
+                3'd1:    fx_samples = 16'd13570;  // A26 27140/2
+                3'd2:    fx_samples = 16'd8770;   // A30 17540/2
+                3'd3:    fx_samples = 16'd9200;   // B01 18400/2
+                3'd4:    fx_samples = 16'd18718;  // B04 37436/2
+                3'd5:    fx_samples = 16'd7214;   // B07 14428/2
+                3'd6:    fx_samples = 16'd42300;  // B08 84600/2
+                3'd7:    fx_samples = 16'd44610;  // B0B 89220/2
+                default: fx_samples = 16'd0;
+            endcase
+        end
+    endfunction
+
     // =====================================================================
     // declarations
     // =====================================================================
@@ -223,7 +244,11 @@ module sgb_sfx_play #(
     // bank offsets are 16-byte aligned, but keep it general. 17 bits like
     // seg_len; the largest effect (B0B) is 44610 words.
     wire [16:0] seg_remw = ({1'b0, seg_len} + {16'd0, seg_base[0]} + 18'd1) >> 1;
-    wire        has_loop = (fxt[16:0] != 17'h1FFFF);
+    // Loop presence by index decode: entries 3..7 (all SFX-B) loop, 0..2
+    // (SFX-A) are one-shot. Equivalent to fxt[16:0] != 17'h1FFFF but a
+    // 3-bit compare instead of a 17-bit one on the muxed table output
+    // (~97% CLS budget). Keep in sync with fx_tab.
+    wire        has_loop = (fxIdx >= 3'd3);
 
     // =====================================================================
     // xClk: streaming FSM
@@ -380,7 +405,7 @@ module sgb_sfx_play #(
     // =====================================================================
     // Gowin rejects a part-select directly on a function call, so latch the
     // table lookup for the triggering effect into a wire first.
-    wire [56:0] ack_fx = fx_tab(ackp_h[2:0]);
+    wire [15:0] ack_smp = fx_samples(ackp_h[2:0]);
 
     always @(posedge hClk or posedge hReset) begin
         if (hReset) begin
@@ -397,8 +422,9 @@ module sgb_sfx_play #(
                     // snapshot flush: discard exactly the residue present now
                     hPlaying  <= 1'b1;
                     run_state <= 1'b0;
-                    looping   <= (ack_fx[16:0] != 17'h1FFFF);
-                    srem      <= ack_fx[33:17] >> 1;  // samples (17 bits >> 1)
+                    // entries 3..7 (SFX-B) loop; keep in sync with fx_tab
+                    looping   <= (ackp_h[2:0] >= 3'd3);
+                    srem      <= ack_smp;             // one-shot sample count
                     if (wbin_h == rbin) begin
                         flush_active <= 1'b0;
                         run_state    <= 1'b1;
