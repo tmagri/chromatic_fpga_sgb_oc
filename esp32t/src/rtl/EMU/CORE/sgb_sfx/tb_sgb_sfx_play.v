@@ -228,13 +228,12 @@ module tb_sgb_sfx_play;
         repeat (100) @(posedge xClk);
 
         // Kirby Dream Land 2 bank:
-        //   one-shots: 0=A1F 1=A26 2=A30 7=B0B(Wave)
-        //   loops:     3=B01 4=B04 5=B07 6=B08
+        //   one-shots: 0=A1F 1=A26 2=A30
+        //   loops:     3=B01 4=B04 5=B07 6=B08 7=B0B(Wave, loops full track)
         $display("== one-shot effects ==");
         play_oneshot(3'd0, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx0.raw");
         play_oneshot(3'd1, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx1.raw");
         play_oneshot(3'd2, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx2.raw");
-        play_oneshot(3'd7, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx7.raw");
 
         // capture far enough to cross the first-pass->loop boundary, which
         // exercises the odd-offset loop re-alignment (skip_wrap).
@@ -243,6 +242,9 @@ module tb_sgb_sfx_play;
         play_loop_for(3'd4, 30000, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx4.raw");
         play_loop_for(3'd5, 14000, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx5.raw");
         play_loop_for(3'd6, 43000, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx6.raw");
+        // B0B Wave: one pass is 44610 samples; capture past it to prove the
+        // full-track loop restarts.
+        play_loop_for(3'd7, 46000, 3000); dump_raw("sgb_sfx/bank_pcm/tb_fx7.raw");
 
         $display("== interrupt/retrigger ==");
         // one-shot (A1F) interrupted by one-shot (A30)

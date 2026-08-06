@@ -84,7 +84,11 @@ module sgb_sfx_play #(
                 3'd4:    fx_tab = {23'd85776,  17'd37436, 17'h03BC0};  // B04 Wind
                 3'd5:    fx_tab = {23'd123216, 17'd14428, 17'h00E20};  // B07 StormThunder
                 3'd6:    fx_tab = {23'd137648, 17'd84600, 17'h13840};  // B08 LightningB
-                3'd7:    fx_tab = {23'd222256, 17'd89220, 17'h1FFFF};  // B0B Wave
+                // B0B loops its whole track: on the real SGB every SFX-B is a
+                // sustained loop (plays until a SOUND stop), but the bank
+                // builder's loop detector saw only one wave + the 250 ms quiet
+                // gap and mis-flagged it one-shot. Loop from byte 0.
+                3'd7:    fx_tab = {23'd222256, 17'd89220, 17'h00000};  // B0B Wave
                 default: fx_tab = 57'd0;
             endcase
         end

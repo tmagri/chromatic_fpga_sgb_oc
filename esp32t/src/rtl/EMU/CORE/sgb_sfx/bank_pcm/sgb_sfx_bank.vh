@@ -11,4 +11,4 @@
 // record 4: B04_Wind.wav offset=85776 bytes=37436 loop=0x3bc0 samples=18718
 // record 5: B07_StormThunder.wav offset=123216 bytes=14428 loop=0xe20 samples=7214
 // record 6: B08_LightningB.wav offset=137648 bytes=84600 loop=0x13840 samples=42300
-// record 7: B0B_Wave.wav offset=222256 bytes=89220 loop=0xffffffff samples=44610
+// record 7: B0B_Wave.wav offset=222256 bytes=89220 loop=0x0 samples=44610

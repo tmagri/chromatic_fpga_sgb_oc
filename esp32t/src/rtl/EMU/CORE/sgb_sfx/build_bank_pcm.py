@@ -24,6 +24,13 @@ from build_bank import load_wav_mono, detect_loop
 
 ALIGN = 16
 
+# Sustained-loop SFX-B effects whose rendered capture holds only one pass
+# (the renderer stops at the first 250 ms quiet gap), so detect_loop() cannot
+# find a repeat region. The real SGB BIOS keeps these going until a SOUND
+# stop packet (e.g. B0B Wave on the KDL2 World 3 map): force a full-track
+# loop (loop point at byte 0).
+FORCE_FULL_LOOP = {'b0b'}
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--rate', type=int, default=16000)
@@ -54,6 +61,8 @@ def main():
             det = detect_loop(mono, a.rate)
             if det:
                 loop_start, loop_len, keep = det
+            if stem in FORCE_FULL_LOOP:
+                loop_start = 0
         mono = mono[:keep]
         # pad stream to an even sample count so it ends word-aligned
         if len(mono) % 2:

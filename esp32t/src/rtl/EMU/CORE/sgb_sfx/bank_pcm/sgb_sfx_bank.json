@@ -59,7 +59,7 @@
   "record": 7,
   "offset": 222256,
   "bytes": 89220,
-  "loop_offset": null,
+  "loop_offset": 0,
   "samples": 44610,
   "rate": 16000
  }
