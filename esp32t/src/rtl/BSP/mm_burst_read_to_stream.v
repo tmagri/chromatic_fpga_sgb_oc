@@ -32,8 +32,11 @@ module mm_burst_read_to_stream #(
       for (i = 0; i < LINE_DEPTH; i = i + 1) lineRam[i] = 16'b0;
     end
     
-    reg [14:0] xLineRam_wa;
-    reg [14:0] hLineRam_ra;
+    // AREA 2026-08: narrowed 15->8 bits. Both pointers only ever reach
+    // LINE_DEPTH (160) < 256, so the increment and <LINE_DEPTH compare now
+    // run 8-bit. (Two instances: u_mm_burst_read_to_stream and _osd.)
+    reg [7:0] xLineRam_wa;
+    reg [7:0] hLineRam_ra;
 
     reg hVsync_r1;
     always@(posedge hClk)
@@ -44,8 +47,8 @@ module mm_burst_read_to_stream #(
         hHsync_r1 <= hHsync;
         
     wire hStartOfFrame = ~hVsync_r1 & hVsync;
-    always@(posedge hClk)
-        hHsync_r1 <= hHsync;
+    // AREA 2026-08: removed a duplicated always block that drove hHsync_r1
+    // a second time (identical to the block above); single driver now.
     wire hStartOfLine = ~hHsync_r1 & hHsync;
 
     always@(posedge hClk)

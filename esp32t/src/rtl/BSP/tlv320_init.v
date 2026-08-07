@@ -20,8 +20,13 @@ module tlv320_init#(
     
 );
 
-    localparam numregs = 64; 
-    localparam numregsactual = 64; 
+    // AREA 2026-08: trimmed 64 -> 52 entries. The old table held twelve
+    // consecutive 0x0000 writes (select page 0) at a point where page 0 was
+    // already selected -- pure redundant I2C boot traffic (~3 ms). All real
+    // register writes are unchanged, including the final 0x0000 page-select
+    // that leaves the codec in the same state as before.
+    localparam numregs = 52;
+    localparam numregsactual = 52;
     reg [15:0] tlv320regs [numregs-1:0] /* synthesis syn_romstyle = "distributed_rom" */;
     initial
     begin

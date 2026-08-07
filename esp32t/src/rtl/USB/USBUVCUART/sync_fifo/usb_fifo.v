@@ -1268,73 +1268,26 @@ module usb_tx_buf #(
     input      [P_DSIZE-1:0]   i_ep_tx_data   //
 );
 //==============================================================
-//======cross fifo
+//======ep data -> packet fifo
+// AREA 2026-08: the clk_cross_fifo that bridged i_ep_clk -> i_clk here was
+// an async gray-code CDC FIFO, but the only instantiation (usb_tx_buf_ep3,
+// EP3_IN_EN in usbuvcuart_top) wires .i_ep_clk(i_ep3_tx_clk) = pClk = i_clk.
+// With WrClock == RdClock the synchronizers, gray converters, 7-bit count
+// subtractors and the 64x8 register array were pure overhead (~400 logic +
+// ~580 regs). Its Full/AlmostFull outputs were unconnected, so nothing
+// relied on its buffering; bytes now flow straight into the packet FIFO.
     wire               pkt_fifo_wr;
-    wire               pkt_fifo_wr_act;
-    wire               pkt_fifo_wr_pktval;
     wire [P_DSIZE-1:0] pkt_fifo_wr_data;
     wire               pkt_fifo_rd;
-    reg                pkt_fifo_rd_dval;
     wire [P_DSIZE-1:0] pkt_fifo_rd_data;
     wire [P_ASIZE  :0] pkt_fifo_wr_num;
     reg  [P_ASIZE  :0] pkt_fifo_wr_num_d0;
     wire               pkt_fifo_empty;
-    wire               c_fifo_wr;
-    wire [P_DSIZE-1:0] c_fifo_wr_data;
-    reg                c_fifo_rd;
-    reg                c_fifo_rd_dval;
-    wire [P_DSIZE-1:0] c_fifo_rd_data;
-    assign c_fifo_wr      = i_ep_tx_dval;
-    assign c_fifo_wr_data = i_ep_tx_data;
-    clk_cross_fifo #(
-       .DSIZE (8  )
-      ,.ASIZE (6  )
-      ,.AEMPT (1  )
-      ,.AFULL (32 )
-    )clk_cross_fifo
-    (
-         .WrClock    (i_ep_clk      )
-        ,.Reset      (i_reset       )
-        ,.WrEn       (c_fifo_wr     )
-        ,.Data       (c_fifo_wr_data)
-        ,.AlmostFull (              )
-        ,.Full       ()
-        ,.RdClock    (i_clk         )
-        ,.RPReset    (i_reset       )
-        ,.RdEn       (c_fifo_rd     )
-        ,.Q          (c_fifo_rd_data)
-        ,.AlmostEmpty()
-        ,.Empty      (c_fifo_empty  )
-    );
-
-
-
-    always@(posedge i_clk, posedge i_reset) begin
-        if (i_reset) begin
-            c_fifo_rd <= 1'b0;
-        end
-        else begin
-            if (c_fifo_empty) begin
-                c_fifo_rd <= 1'b0;
-            end
-            else begin
-                c_fifo_rd <= 1'b1;
-            end
-        end
-    end
-    always@(posedge i_clk, posedge i_reset) begin
-        if (i_reset) begin
-            c_fifo_rd_dval <= 1'b0;
-        end
-        else begin
-            c_fifo_rd_dval <= c_fifo_rd & (!c_fifo_empty);
-        end
-    end
+    assign pkt_fifo_wr      = i_ep_tx_dval;
+    assign pkt_fifo_wr_data = i_ep_tx_data;
 
 //==============================================================
 //======usb packet crc check fifo
-assign pkt_fifo_wr        = c_fifo_rd_dval;
-assign pkt_fifo_wr_data   = c_fifo_rd_data;
 assign pkt_fifo_rd_pktfin = i_usb_txpktfin&(i_usb_endpt==P_ENDPOINT);
 assign pkt_fifo_rd_act    = i_usb_txact&(i_usb_endpt==P_ENDPOINT);
 assign pkt_fifo_rd        = i_usb_txpop&(i_usb_endpt==P_ENDPOINT);
@@ -1486,19 +1439,6 @@ assign c_fifo_wr_data = pkt_fifo_rd_data;
         ,.AlmostEmpty()
         ,.Empty      (c_fifo_empty  )
     );
-    //dual_fifo_top dual_fifo_top(
-    //    .WrClk      (i_clk          ), //input WrClk
-    //    .WrReset    (i_reset        ), //input WrReset
-    //    .RdReset    (i_reset        ), //input RdReset
-    //    .WrEn       (c_fifo_wr      ), //input WrEn
-    //    .Data       (c_fifo_wr_data ), //input [7:0] Data
-    //    .RdClk      (i_ep_clk       ), //input RdClk
-    //    .RdEn       (c_fifo_rd      ), //input RdEn
-    //    .Almost_Full(c_fifo_afull   ), //output Almost_Full
-    //    .Q          (c_fifo_rd_data ), //output [7:0] Q
-    //    .Empty      (c_fifo_empty   ), //output Empty
-    //    .Full       () //output Full
-    //);
     always@(posedge i_ep_clk, posedge i_reset) begin
         if (i_reset) begin
             c_fifo_rd <= 1'b0;

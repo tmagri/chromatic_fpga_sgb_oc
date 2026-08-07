@@ -39,8 +39,6 @@ module UART
 
     reg  [3:0] uart_rxd_shreg     ;
     reg        uart_rxd_debounced ;
-    reg  [3:0] uart_cts_shreg     ;
-    reg        uart_cts_debounced ;
     wire       uart_tx_busy       ;
     wire [31:0]div_out ;
     wire       div_cmpl;
@@ -73,17 +71,9 @@ module UART
         end
     end
 
-    always @(posedge CLK or posedge RST) begin
-        if (RST) begin
-            uart_cts_shreg <= 4'hF;
-            uart_cts_debounced <= 1'b1;
-        end
-        else begin
-            uart_cts_shreg <= {UART_CTS, uart_cts_shreg[3:1]};
-            uart_cts_debounced <= uart_cts_shreg[0]|uart_cts_shreg[1]|uart_cts_shreg[2]|uart_cts_shreg[3];
-        end
-    end
-
+    // AREA 2026-08: removed the uart_cts_shreg/uart_cts_debounced debounce
+    // chain. uart_cts_debounced was never read (TX_BUSY below uses the raw
+    // UART_CTS input), and UART_CTS is tied 1'd0 at both instantiations.
     assign UART_RTS  = 1'b0;
     assign TX_BUSY   = uart_tx_busy | UART_CTS;
 

@@ -241,9 +241,8 @@ module usbuvcuart_top(
     /* This is for video EP only */
     reg v_txact_d0;
     reg v_txact_d1;
-    wire v_txact_rise;
     wire v_txact_fall;
-    assign v_txact_rise = v_txact_d0&(~v_txact_d1);
+    // AREA 2026-08: v_txact_rise was computed but never used; removed.
     assign v_txact_fall = v_txact_d1&(~v_txact_d0);
     always @(posedge pClk) begin
         if (RESET_IN) begin
@@ -736,8 +735,10 @@ module usbuvcuart_top(
         yFrameValid_r1 <= yFrameValid;
     wire h_sof = yFrameValid & ~yFrameValid_r1;
 
-    reg [9:0] hCountX;
-    reg [9:0] hCountY;
+    // AREA 2026-08: trimmed 10->8 bits. hCountX maxes at WIDTH (160) and
+    // hCountY at the lines-per-frame (~154); both < 256 (uvc_defs.v).
+    reg [7:0] hCountX;
+    reg [7:0] hCountY;
 
     reg hImage_eof;
 
@@ -1395,8 +1396,10 @@ module usbuac_ep(
     //reg [MAXBUFFER - 1:0][7:0] mem1;
     reg [MAXBUFFER*8 - 1:0] mem0;
     reg [MAXBUFFER*8 - 1:0] mem1;
-    reg [11:0] write_ptr0;
-    reg [11:0] write_ptr1;
+    // AREA 2026-08: trimmed 12->5 bits; the pointers only ever reach
+    // MAXBUFFER (24) in steps of 4.
+    reg [4:0] write_ptr0;
+    reg [4:0] write_ptr1;
 
     reg [3:0] pState;
 
@@ -1477,13 +1480,15 @@ module audioclk_gen(input pClk, input reset, output bclk, output aclk);
     parameter AFREQ = 44100;
     parameter BFREQ = AFREQ * 32;
 
-    reg [31:0] count;
+    // AREA 2026-08: trimmed 32->25 bits. count is always < FREQ_SUM+BFREQ
+    // (~31.4M with the defaults) < 2^25, so this is bit-exact.
+    reg [24:0] count;
     reg [4:0] acount;
     reg bclkin;
 
     always @(posedge pClk or posedge reset) begin
         if (reset) begin
-            count <= 32'd0;
+            count <= 25'd0;
             acount <= 6'd0;
             bclkin <= 0;
         end else begin

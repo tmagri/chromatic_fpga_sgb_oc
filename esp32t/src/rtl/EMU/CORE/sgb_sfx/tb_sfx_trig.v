@@ -54,26 +54,39 @@ module tb_sfx_trig;
                              (sfx_b_num[7] &&  sfx_is_b);
 
     // ---- replicated CMD_SOUND handling, clocked like gb.v's packet engine ----
+    reg reset_ss = 0;
     always @(posedge clk) begin
-        // per-cycle default pulse clears (gb.v does this at the top of the ce block)
-        sfx_start_r <= 0;
-        sfx_stop_r  <= 0;
-        if (byte_done) begin
-            if (isSGB) begin
-                if (byte_cnt == 5'd1) sfx_a_num <= data;
-                if (byte_cnt == 5'd2) sfx_b_num <= data;
-                if (byte_cnt == 5'd4) begin
-                    if ((sfx_a_num[7] && !sfx_is_b) ||
-                        (sfx_b_num[7] &&  sfx_is_b)) begin
-                        sfx_stop_r  <= 1'b1;
-                    end else if (!sfx_b_num[7] && sfx_hit_b[3]) begin
-                        sfx_start_r <= 1'b1;
-                        sfx_index_r <= sfx_hit_b[2:0];
-                        sfx_is_b    <= 1'b1;
-                    end else if (!sfx_a_num[7] && sfx_hit_a[3]) begin
-                        sfx_start_r <= 1'b1;
-                        sfx_index_r <= sfx_hit_a[2:0];
-                        sfx_is_b    <= 1'b0;
+        if (reset_ss) begin
+            // gb.v's packet-engine reset branch: stop the SFX engine and
+            // clear the latched SOUND state. The engine lives in
+            // mem_system_top on the memrst domain, which this reset does
+            // not reach, so looping SFX-B ambience (e.g. B0B Wave) would
+            // otherwise keep playing after Everdrive-menu exit / reset.
+            sfx_stop_r <= 1'b1;
+            sfx_a_num  <= 8'd0;
+            sfx_b_num  <= 8'd0;
+            sfx_is_b   <= 1'b0;
+        end else begin
+            // per-cycle default pulse clears (gb.v does this at the top of the ce block)
+            sfx_start_r <= 0;
+            sfx_stop_r  <= 0;
+            if (byte_done) begin
+                if (isSGB) begin
+                    if (byte_cnt == 5'd1) sfx_a_num <= data;
+                    if (byte_cnt == 5'd2) sfx_b_num <= data;
+                    if (byte_cnt == 5'd4) begin
+                        if ((sfx_a_num[7] && !sfx_is_b) ||
+                            (sfx_b_num[7] &&  sfx_is_b)) begin
+                            sfx_stop_r  <= 1'b1;
+                        end else if (!sfx_b_num[7] && sfx_hit_b[3]) begin
+                            sfx_start_r <= 1'b1;
+                            sfx_index_r <= sfx_hit_b[2:0];
+                            sfx_is_b    <= 1'b1;
+                        end else if (!sfx_a_num[7] && sfx_hit_a[3]) begin
+                            sfx_start_r <= 1'b1;
+                            sfx_index_r <= sfx_hit_a[2:0];
+                            sfx_is_b    <= 1'b0;
+                        end
                     end
                 end
             end
@@ -145,6 +158,30 @@ module tb_sfx_trig;
         // stop-A while B playing -> should NOT stop (is_b=1)
         send_sound(8'h00, 8'h04, 8'h00); @(posedge clk);        // start B
         send_sound(8'h80, 8'h00, 8'h00); @(posedge clk); check(3'd0,0,0);
+
+        // ---- core reset must stop the SFX engine (Everdrive menu exit) ----
+        // start a looping SFX-B (B0B Wave), then assert the core reset
+        send_sound(8'h00, 8'h0B, 8'h00); @(posedge clk); check(3'd7,1,0);
+        saw_stop = 0;
+        reset_ss = 1;
+        repeat (5) @(posedge clk);
+        if (!saw_stop) begin
+            fails = fails + 1;
+            $display("  FAIL reset did not assert sfx_stop");
+        end else $display("  ok   reset asserted sfx_stop");
+        if (sfx_is_b !== 1'b0) begin
+            fails = fails + 1;
+            $display("  FAIL reset did not clear sfx_is_b");
+        end else $display("  ok   reset cleared sfx_is_b");
+        // deassert: the default clears re-arm sfx_stop on the first ce
+        reset_ss = 0;
+        @(posedge clk); #1;
+        if (sfx_stop !== 1'b0) begin
+            fails = fails + 1;
+            $display("  FAIL sfx_stop not re-armed after reset");
+        end else $display("  ok   sfx_stop re-armed after reset");
+        // a new game after reset can still trigger effects
+        send_sound(8'h1F, 8'h00, 8'h00); @(posedge clk); check(3'd0,1,0);
 
         if (fails) $display("RESULT: FAIL (%0d)", fails);
         else       $display("RESULT: PASS");

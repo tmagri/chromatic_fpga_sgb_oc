@@ -24,14 +24,20 @@ module ST7785_init #(parameter ISSIMU=0)
     reg       cs;
     assign LCD_SCK = ~cs ? sck : 1'd0;
 
-    localparam DATA_MAX_CNT = 127;
-    
+    // AREA 2026-08: trimmed 128 -> 98 entries. The last real init command is
+    // entry 93 of regs.bin; entries 94-127 were all 0x00 (ST7785 NOP) bytes
+    // bit-banged at boot for no effect. Structure preserved: phase 1 clocks
+    // out entries 0..93 (max_cnt = DATA_MAX_CNT-4 = 94), then the DELAYEND
+    // settle delay, then phase 2 sends the 4 trailing NOPs -- the same
+    // command/delay sequence the panel saw before, minus ~2 ms of NOPs.
+    localparam DATA_MAX_CNT = 98;
+
     wire[23:0] RESETSTART = ISSIMU ? 2000 : 0;
     wire[23:0] RESETEND   = ISSIMU ? 3000 : 80000;
     wire[23:0] DELAYMAX   = ISSIMU ? 5000 : 90000;
     wire[17:0] DELAYEND   = ISSIMU ? 18'd500 : 18'd2560;
 
-    reg[8:0] sets[127:0] /* synthesis syn_romstyle = "distributed_rom" */;
+    reg[8:0] sets[97:0] /* synthesis syn_romstyle = "distributed_rom" */;
     reg[6:0] data_cnt;
     reg[4:0] bit_cnt;
     reg[23:0] delay_cnt;

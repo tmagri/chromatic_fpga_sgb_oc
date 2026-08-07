@@ -1719,6 +1719,17 @@ always @(posedge clk_sys) begin
 		old_p15 <= p15;
 		old_p14 <= p14;
 		pkt_idle_cnt <= 0;
+		// Silence the SGB built-in SFX engine on any core reset (power, reset
+		// button, Everdrive menu). It lives in mem_system_top on the memrst
+		// domain, which this reset does not reach, and looping SFX-B effects
+		// otherwise play forever: only a SOUND stop packet clears them, and a
+		// reset game never sends one for the previous game's ambience. The
+		// level is edge-detected downstream, held for the reset duration, and
+		// the first ce after reset clears it back to 0 below.
+		sfx_stop_r <= 1'b1;
+		sfx_a_num  <= 8'd0;
+		sfx_b_num  <= 8'd0;
+		sfx_is_b   <= 1'b0;
 	 end else if (ce) begin
 		old_p15 <= p15;
 		old_p14 <= p14;

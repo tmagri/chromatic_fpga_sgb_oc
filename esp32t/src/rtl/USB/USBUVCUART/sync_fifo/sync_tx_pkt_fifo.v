@@ -47,7 +47,6 @@ reg [DSIZE - 1:0] RAM [0:(1<<ASIZE) - 1];  //deep 512, 8 bit RAM
 reg [DSIZE - 1:0] oData_reg;   //regsiter of oData
 reg [DSIZE - 1:0] oData_next;   //regsiter of oData
 reg  txact_d0;
-wire txact_rise;
 wire txact_fall;
 reg  req_d0;
 
@@ -71,7 +70,6 @@ begin                  // read from RAM
         rp <= 'd0;
         rp_next <= 'd1;
     end
-    //else if ( txact_rise ) begin
     else if ( txact_fall ) begin
         if ( read & (~empty)  ) begin
             rp <= pkt_rp + 1'b1;
@@ -126,7 +124,6 @@ always @ ( posedge CLK or negedge RSTn ) begin    //
         txact_d0 <= txact;
     end
 end
-assign txact_rise = txact&(!txact_d0);
 assign txact_fall = txact_d0&(!txact);
 
 always @ ( posedge CLK or negedge RSTn ) begin    // 
@@ -142,15 +139,11 @@ always @ ( posedge CLK or negedge RSTn ) begin    //
         wrnum <= 'd0;
     end
     else begin
-        //if (wp[ASIZE - 1 : 0] > pkt_rp[ASIZE - 1 : 0]) begin
-        //    wrnum <= wp[ASIZE - 1 : 0] - pkt_rp[ASIZE - 1 : 0];
-        //end
-        if (wp[ASIZE : 0] >= pkt_rp[ASIZE : 0]) begin
-            wrnum <= wp[ASIZE : 0] - pkt_rp[ASIZE : 0];
-        end
-        else begin
-            wrnum <= {1'b1,wp[ASIZE - 1 : 0]} - {1'b0,pkt_rp[ASIZE - 1 : 0]};
-        end
+        // AREA 2026-08: the branched compare above synthesized as a comparator
+        // + two subtractors + a mux. Fill can never exceed 2^ASIZE, so plain
+        // (ASIZE+1)-bit modular subtraction is exactly equivalent (both the
+        // wp >= pkt_rp and the wrap case collapse into one subtractor).
+        wrnum <= wp - pkt_rp;
     end
 end
 assign full = ( (wp[ASIZE] ^ pkt_rp[ASIZE]) & (wp[ASIZE - 1:0] == pkt_rp[ASIZE - 1:0]) );

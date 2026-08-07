@@ -101,12 +101,14 @@ always @ ( posedge CLK or negedge RSTn ) begin    //
         wrnum <= 'd0;
     end
     else begin
-        if (wp[ASIZE - 1 : 0] >= rp[ASIZE - 1 : 0]) begin
-            wrnum <= wp[ASIZE - 1 : 0] - rp[ASIZE - 1 : 0];
-        end
-        else begin
-            wrnum <= {1'b1,wp[ASIZE - 1 : 0]} - {1'b0,rp[ASIZE - 1 : 0]};
-        end
+        // AREA + BUGFIX 2026-08: the old version compared only the low ASIZE
+        // bits, so when the pointers' wrap bits differed but wp[lo] >= rp[lo]
+        // it silently dropped the 2^ASIZE offset -- wrnum read small at
+        // exactly-full, which would re-assert o_usb_rxrdy early. Fill can
+        // never exceed 2^ASIZE, so (ASIZE+1)-bit modular subtraction is
+        // correct in every case and costs one subtractor instead of a
+        // comparator + two subtractors + mux.
+        wrnum <= wp - rp;
     end
 end
 
