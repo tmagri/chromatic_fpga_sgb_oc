@@ -395,6 +395,33 @@ module emu_system_top
     // 0x0146 = SGB flag  (0x03=SGB enhanced)
     // 0x014B = old licensee code (0x33=new licensee, required for SGB)
     // ----------------------------------------------------------------
+    // Force-GB header spoof: with SGB MODE off (sgb_disabled), CPU reads
+    // of the SGB flag byte $0146 return $00 ("no SGB features") instead
+    // of the cart's real value. This hides SGB carts from BOTH the
+    // universal boot ROM and the game: the boot ROM's GetPaletteIndex
+    // only sets its SgbFlag when $0146=$03 AND $014B=$33, so with the
+    // spoof it takes the plain DMG handoff (A=$11) instead of the
+    // SGBBoot path that pushes the packet sequence and hands off with
+    // the SGB register signature (A=$01, HL=$C060). Without this,
+    // SGB-enhanced carts (Donkey Kong '94, Kirby Dream Land 2) boot
+    // believing they are on an SGB, speak SGB protocol to the disarmed
+    // engine and hang on a black screen; plain GB carts (FIFA 98) never
+    // set SgbFlag, so they are unaffected either way.
+    // GBC carts are EXCLUDED via ~isGBC_game: this setting is SGB->GB
+    // only and must never touch a GBC game. (Safe by construction too:
+    // the boot ROM always reads $0143 before $0146, so isGBC_game is
+    // already correct by the time $0146 is fetched, and on real GBC
+    // carts $0146 carries no GBC meaning anyway -- GBC mode keys off
+    // $0143/KEY0, which are never spoofed.) Spoofing $0146 alone
+    // suffices -- every SGB detection requires this byte to be $03 --
+    // and leaves every other header byte (incl. the licensee codes some
+    // games route on) untouched. The override is combinational on the
+    // same rd/a cycle the CPU consumes CART_DIN_r1 (the exact alignment
+    // the snoop below already relies on), and the snoop captures the
+    // spoofed value so isSGB_game drops naturally.
+    wire [7:0] cart_din_cpu = (sgb_disabled && ~isGBC_game && rd && a == 16'h0146)
+                                ? 8'h00 : CART_DIN_r1;
+
     reg [7:0] cart_cgb_flag    = 8'h00;
     reg [7:0] cart_sgb_flag    = 8'h00;
     reg [7:0] cart_old_lic     = 8'h00;
@@ -409,9 +436,9 @@ module emu_system_top
             hdr_lic_captured <= 1'b0;
         end else if (rd) begin
             case (a)
-                16'h0143: begin cart_cgb_flag <= CART_DIN_r1; hdr_cgb_captured <= 1'b1; end
-                16'h0146: begin cart_sgb_flag <= CART_DIN_r1; hdr_sgb_captured <= 1'b1; end
-                16'h014B: begin cart_old_lic  <= CART_DIN_r1; hdr_lic_captured  <= 1'b1; end
+                16'h0143: begin cart_cgb_flag <= cart_din_cpu; hdr_cgb_captured <= 1'b1; end
+                16'h0146: begin cart_sgb_flag <= cart_din_cpu; hdr_sgb_captured <= 1'b1; end
+                16'h014B: begin cart_old_lic  <= cart_din_cpu; hdr_lic_captured  <= 1'b1; end
                 default:  ;
             endcase
         end
@@ -496,7 +523,7 @@ module emu_system_top
         .ext_bus_a15(a[15]),
         .cart_rd(rd),
         .cart_wr(wr),
-        .cart_do(CART_DIN_r1),
+        .cart_do(cart_din_cpu),  // spoofed when SGB MODE off (see cart_din_cpu above)
         .cart_di(CART_DOUT),
         .cart_oe(cart_oe),
         .cart_busy(cart_busy),

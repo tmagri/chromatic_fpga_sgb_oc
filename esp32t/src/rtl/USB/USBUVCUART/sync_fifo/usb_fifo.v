@@ -15,7 +15,13 @@
 `define    EP3_OUT_EN
 `define     EP1_IN_BUF_ASIZE     4'd12
 `define     EP2_IN_BUF_ASIZE     4'd12
-`define     EP3_IN_BUF_ASIZE     4'd12
+// AREA 2026-08: EP3 IN is the USB->host side of the UART bridge (uart_rx
+// bytes). 4096 deep cost 4 BSRAM blocks (the tx packet FIFO synthesizes two
+// read ports); 1024 deep fits one block per port = 2 blocks, freeing 2.
+// The UART can't produce bytes faster than the host's SET_LINE_CODING rate
+// (default 115200), and the host drains 64B per IN token, so >1 kB of
+// elasticity is far beyond what the link can ever need.
+`define     EP3_IN_BUF_ASIZE     4'd10
 `define     EP4_IN_BUF_ASIZE     4'd12
 `define     EP5_IN_BUF_ASIZE     4'd12
 `define     EP6_IN_BUF_ASIZE     4'd12
@@ -30,7 +36,11 @@
 `define     EP15_IN_BUF_ASIZE    4'd12
 `define     EP1_OUT_BUF_ASIZE    4'd12
 `define     EP2_OUT_BUF_ASIZE    4'd12
-`define     EP3_OUT_BUF_ASIZE    4'd12
+// AREA 2026-08: EP3 OUT is the host->UART side of the UART bridge. The UART
+// TX drains at the baud rate and o_usb_rxrdy NAKs the host before overflow,
+// so depth only sets burst elasticity: 2048 (1 BSRAM block, was 2) with
+// AFULL at half keeps the same full/AFULL ratio as before.
+`define     EP3_OUT_BUF_ASIZE    4'd11
 `define     EP4_OUT_BUF_ASIZE    4'd12
 `define     EP5_OUT_BUF_ASIZE    4'd12
 `define     EP6_OUT_BUF_ASIZE    4'd12
@@ -45,7 +55,7 @@
 `define     EP15_OUT_BUF_ASIZE   4'd12
 `define     EP1_OUT_BUF_AFULL    13'd2048
 `define     EP2_OUT_BUF_AFULL    13'd2048
-`define     EP3_OUT_BUF_AFULL    13'd2048
+`define     EP3_OUT_BUF_AFULL    13'd1024  // AREA 2026-08: half of the trimmed 2048 depth (was 2048 of 4096)
 `define     EP4_OUT_BUF_AFULL    13'd2048
 `define     EP5_OUT_BUF_AFULL    13'd2048
 `define     EP6_OUT_BUF_AFULL    13'd2048
@@ -313,7 +323,11 @@ assign usb_txdat[2]   = 8'd0;
 wire [ 7:0] ep3_txdat;
 wire        ep3_txcork;
 wire [`EP3_IN_BUF_ASIZE:0] ep3_txlen;
-assign usb_txlen[3]  = (ep3_txlen >= i_ep3_tx_max) ? i_ep3_tx_max : ep3_txlen[11:0];
+// AREA 2026-08: zero-extend instead of ep3_txlen[11:0] -- with the trimmed
+// ASIZE the wire is narrower than 12 bits and an out-of-range bit select
+// would read X. (Safe for any ASIZE <= 12: this branch only runs when
+// ep3_txlen < i_ep3_tx_max <= 64, so dropped high bits are always zero.)
+assign usb_txlen[3]  = (ep3_txlen >= i_ep3_tx_max) ? i_ep3_tx_max : {1'b0, ep3_txlen};
 assign usb_txcork[3]  = ep3_txcork;
 assign usb_txdat[3]   = ep3_txdat;
 `else
@@ -1348,16 +1362,11 @@ module usb_rx_buf #(
     reg                pkt_fifo_wr_act;
     reg                pkt_fifo_wr_pktval;
     reg  [P_DSIZE-1:0] pkt_fifo_wr_data;
-    reg                pkt_fifo_rd;
+    reg                pkt_fifo_rd_req;
+    wire               pkt_fifo_rd;
     reg                pkt_fifo_rd_dval;
     wire [P_DSIZE-1:0] pkt_fifo_rd_data;
     wire [P_ASIZE  :0] pkt_fifo_wr_num;
-    wire               c_fifo_wr;
-    wire [P_DSIZE-1:0] c_fifo_wr_data;
-    wire               c_fifo_afull;
-    reg                c_fifo_rd;
-    reg                c_fifo_dval;
-    wire [P_DSIZE-1:0] c_fifo_rd_data;
 
 //==============================================================
 //======usb rx
@@ -1396,81 +1405,57 @@ module usb_rx_buf #(
     );
     always@(posedge i_clk, posedge i_reset) begin
         if (i_reset) begin
-            pkt_fifo_rd <= 1'b0;
+            pkt_fifo_rd_req <= 1'b0;
         end
         else begin
-            if (pkt_fifo_empty||(c_fifo_afull)) begin
-                pkt_fifo_rd <= 1'b0;
+            // AREA 2026-08: was gated by the cross-FIFO's AlmostFull; with
+            // the cross-FIFO gone (same-clock bypass below), the EP-side
+            // ready is the only backpressure left. Keeps the original
+            // one-cycle-on/one-cycle-off issue cadence.
+            if (pkt_fifo_rd_req||pkt_fifo_empty||(!i_ep_rx_rdy)) begin
+                pkt_fifo_rd_req <= 1'b0;
             end
             else begin
-                pkt_fifo_rd <= 1'b1;
+                pkt_fifo_rd_req <= 1'b1;
             end
         end
     end
+    // AREA 2026-08: the read must be re-qualified with i_ep_rx_rdy in the
+    // read cycle itself (the request was qualified the cycle before). The
+    // UART TX raises BUSY one cycle AFTER latching a byte, so a request made
+    // while ready can land on a cycle where the UART is already busy; the
+    // removed cross-FIFO absorbed that case because its RdEn re-checked
+    // ready and a blocked read left the byte in the FIFO. The packet FIFO's
+    // read pointer advances on .read, so gating the pointer advance the same
+    // way keeps the stream lossless. A blocked request still registers
+    // pkt_fifo_rd_dval below with the previous byte held on oData -- the
+    // UART TX ignores DATA_SEND while busy, so the stale presentation is
+    // harmless (identical to the cross-FIFO's stale-Q behavior).
+    assign pkt_fifo_rd = pkt_fifo_rd_req & i_ep_rx_rdy;
     always@(posedge i_clk, posedge i_reset) begin
         if (i_reset) begin
             pkt_fifo_rd_dval <= 1'b0;
         end
         else begin
-            pkt_fifo_rd_dval <= pkt_fifo_rd & (!pkt_fifo_empty);
+            pkt_fifo_rd_dval <= pkt_fifo_rd_req & (!pkt_fifo_empty);
         end
     end
 //==============================================================
-//======cross fifo
-assign c_fifo_wr      = pkt_fifo_rd_dval;
-assign c_fifo_wr_data = pkt_fifo_rd_data;
-    clk_cross_fifo #(
-       .DSIZE (8  )
-      ,.ASIZE (6  )
-      ,.AEMPT (1  )
-      ,.AFULL (32 )
-    )clk_cross_fifo
-    (
-         .WrClock    (i_clk         )
-        ,.Reset      (i_reset       )
-        ,.WrEn       (c_fifo_wr     )
-        ,.Data       (c_fifo_wr_data)
-        ,.AlmostFull (c_fifo_afull  )
-        ,.Full       ()
-        ,.RdClock    (i_ep_clk      )
-        ,.RPReset    (i_reset       )
-        ,.RdEn       (c_fifo_rd&i_ep_rx_rdy)
-        ,.Q          (c_fifo_rd_data)
-        ,.AlmostEmpty()
-        ,.Empty      (c_fifo_empty  )
-    );
-    always@(posedge i_ep_clk, posedge i_reset) begin
-        if (i_reset) begin
-            c_fifo_rd <= 1'b0;
-        end
-        else begin
-            if (c_fifo_rd||c_fifo_empty||(!i_ep_rx_rdy)) begin
-                c_fifo_rd <= 1'b0;
-            end
-            else begin
-                c_fifo_rd <= 1'b1;
-            end
-        end
-    end
-    always@(posedge i_ep_clk, posedge i_reset) begin
-        if (i_reset) begin
-            c_fifo_dval <= 1'b0;
-        end
-        else begin
-            if (c_fifo_rd & (!c_fifo_empty)) begin
-                c_fifo_dval <= 1'b1;
-            end
-            //else if (!i_ep_rx_rdy) begin
-            //    c_fifo_dval <= c_fifo_dval;
-            //end
-            else begin
-                c_fifo_dval <= 1'b0;
-            end
-        end
-    end
+//======ep data out
+// AREA 2026-08: removed the clk_cross_fifo that sat between the packet FIFO
+// and the EP side here (~580 regs + ~380 LUT of gray-code CDC logic). In the
+// only instantiation (usb_rx_buf_ep3, EP3_OUT_EN) .i_ep_clk is wired to the
+// same net as .i_clk (pClk), so the async bridge was pure overhead. The
+// packet FIFO's registered output now feeds the EP side directly:
+// pkt_fifo_rd issues one cycle after the FIFO is non-empty and the EP is
+// ready, and pkt_fifo_rd_dval/pkt_fifo_rd_data present the byte one cycle
+// after that -- the same issue cadence (one on / one off) and the same
+// issue-to-data latency the path through the cross-FIFO had, so UART TX
+// timing is unchanged. Flow control is unchanged too: o_usb_rxrdy still
+// NAKs the host when the packet FIFO passes P_AFULL.
     assign o_usb_rxrdy  = pkt_fifo_wr_num < P_AFULL;
-    assign o_ep_rx_dval = c_fifo_dval;
-    assign o_ep_rx_data = c_fifo_rd_data;
+    assign o_ep_rx_dval = pkt_fifo_rd_dval;
+    assign o_ep_rx_data = pkt_fifo_rd_data;
 
 endmodule
 

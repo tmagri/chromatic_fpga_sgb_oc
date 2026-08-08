@@ -24,6 +24,11 @@ def parse_stream(rom, base):
         o += ln
 
 def load_apu():
+    if not os.path.isfile(BIOS):
+        raise SystemExit(
+            f"SGB BIOS not found at {BIOS}\n"
+            "SGB1.sfc is copyrighted -- provide your own dump as "
+            "sgb_sfx/SGB1.sfc or set the SGB_BIOS env var.")
     rom = open(BIOS,'rb').read()
     # bank 6 (LoROM file offset 0x30000) holds the APU image stream
     recs, entry = parse_stream(rom, 0x30000)

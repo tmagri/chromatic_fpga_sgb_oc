@@ -13,14 +13,19 @@ module audio_filter
 
 localparam CLK_RATE = 16777000; // hclk
 
-reg [31:0] flt_rate = 7056000;
-reg [39:0] cx  = 4258969;
-reg  [7:0] cx0 = 3;
-reg  [7:0] cx1 = 3;
-reg  [7:0] cx2 = 1;
-reg [23:0] cy0 = 24'hA123C9;
-reg [23:0] cy1 = 24'h5DBD9A;
-reg [23:0] cy2 = 24'hE11EA9;
+// AREA 2026-08: these were initialized regs that nothing ever wrote again.
+// Gowin kept them as real flip-flops (~168) instead of constant-folding
+// them, which also blocked constant propagation into the IIR coefficient
+// muxes and multipliers below. As localparams the values are identical at
+// every moment they could ever be observed (bit-exact).
+localparam [31:0] flt_rate = 7056000;
+localparam [39:0] cx  = 4258969;
+localparam  [7:0] cx0 = 3;
+localparam  [7:0] cx1 = 3;
+localparam  [7:0] cx2 = 1;
+localparam [23:0] cy0 = 24'hA123C9;
+localparam [23:0] cy1 = 24'h5DBD9A;
+localparam [23:0] cy2 = 24'hE11EA9;
 
 reg sample_ce;
 reg [7:0] div = 0;

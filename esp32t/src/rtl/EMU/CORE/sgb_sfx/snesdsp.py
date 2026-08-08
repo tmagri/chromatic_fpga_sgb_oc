@@ -12,8 +12,11 @@ def _load_gtbl():
         return
     except ImportError:
         pass
-    import re
-    txt = open('/Users/troymagri/Desktop/SGB_MiSTer/rtl/DSP_PKG.vhd').read()
+    import re, os
+    # Fallback source of the table: DSP_PKG.vhd from the SGB_MiSTer core,
+    # copied into this folder so the tree is self-contained.
+    pkg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'DSP_PKG.vhd')
+    txt = open(pkg_path).read()
     m = re.search(r'GTBL: GaussTbl_t := \((.*?)\);', txt, re.S)
     vals = re.findall(r'x"([0-9A-Fa-f]{3})"', m.group(1))
     assert len(vals) == 512, len(vals)
@@ -276,7 +279,16 @@ class SNESDSP:
         for v in self.voices:
             # voice1/voice2: source dir, latch adsr0 + pitch
             brr_src_addr, brr_next = self._dir(v.source)
-            v.nextAddress = brr_next
+            # Upstream ares (sfc/dsp/voice.cpp) selects the directory word by
+            # key state:  n16 address = brr._address;
+            #             if(!v.keyonDelay) address += 2;
+            # During the key-on delay it reads the FIRST word (sample start
+            # address), so KON begins playback at the start block; only once
+            # running (keyonDelay==0) does it read the second word (loop
+            # pointer), which a block with the end+loop flags jumps back to.
+            # (An earlier revision of this port always latched the second
+            # word, keying playback on at the loop pointer instead.)
+            v.nextAddress = brr_next if not v.keyonDelay else brr_src_addr
             latch_adsr0 = v.adsr0
             pitch = v.pitch & 0x3FFF
             # current brr byte + header (voice3b)

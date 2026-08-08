@@ -98,8 +98,15 @@ def encode_brr(samples, loop=False, rate_note=None):
     return bytes(out)
 
 def main():
-    src = sys.argv[1] if len(sys.argv) > 1 else '/Users/troymagri/Downloads/sgb/sfx_rendered'
-    dst = sys.argv[2] if len(sys.argv) > 2 else '/Users/troymagri/Downloads/sgb/sfx_brr'
+    # Defaults live inside this folder so the tree is self-contained:
+    # encode the rendered WAVs in ./wav into ./brr (legacy reference flow;
+    # the ROM-native bank in build/ takes the original BRR bytes verbatim
+    # instead of re-encoding).
+    _here = os.path.dirname(os.path.abspath(__file__))
+    default_src = os.path.join(_here, 'wav')
+    default_dst = os.path.join(_here, 'brr')
+    src = sys.argv[1] if len(sys.argv) > 1 else default_src
+    dst = sys.argv[2] if len(sys.argv) > 2 else default_dst
     rate = int(sys.argv[3]) if len(sys.argv) > 3 else 16000
     os.makedirs(dst, exist_ok=True)
     manifest = {}

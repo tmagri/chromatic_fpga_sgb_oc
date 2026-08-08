@@ -16,15 +16,30 @@ fed into a faithful SNES DSP emulation. The result is captured to WAV.
 | `render.py` | Main driver: boots the BIOS APU image, triggers each SFX index via the SGB `SOUND` packet bytes, captures DSP output to WAV. |
 | `spc700.py` | Cycle-counted SPC700 CPU core (Python). |
 | `snesdsp.py` | SNES DSP emulation, a faithful port of the [ares](https://github.com/ares-emulator/ares) emulator's DSP (`brr.cpp`, `gaussian.cpp`, `envelope.cpp`, `counter.cpp`, `voice.cpp`, `memory.cpp`). |
-| `gauss_table.py` | The 512-entry SNES DSP Gaussian interpolation table (extracted from `SGB_MiSTer/rtl/DSP_PKG.vhd`, identical to the SNES DSP ROM table). Makes the tools self-contained. |
-| `wav2brr.py` | WAV -> BRR encoder (for converting rendered audio to BRR if a BRR playback path is wanted). |
-| `spc2wav.py` | SPC -> WAV helper (uses the external `spct`/libgme player) -- used for cross-checking against an independent DSP implementation. |
-| `wav/` | The 73 rendered effects: `A01..A30` (SFX-A) and `B01..B19` (SFX-B), 32 kHz 16-bit stereo. |
+| `gauss_table.py` | The 512-entry SNES DSP Gaussian interpolation table (extracted from `DSP_PKG.vhd`, identical to the SNES DSP ROM table). Makes the tools self-contained. |
+| `DSP_PKG.vhd` | Copy of the SGB_MiSTer core's DSP package (open source); only used as the fallback source for the gauss table if `gauss_table.py` is unavailable. |
+| `extract_apu.py` | ROM-native pipeline: extracts the APU sound image (sample directory + BRR) from `SGB1.sfc`, traces all 73 effects to pick the dominant sample + pitch, and builds the bank bin/manifest/ref streams in `build/`. |
+| `wav2brr.py` | WAV -> BRR encoder (legacy reference flow for converting rendered audio to BRR; the ROM-native bank takes the original BRR bytes verbatim instead). |
+| `spc2wav.py` | SPC -> WAV helper -- renders `.spc` dumps in this emulator; used for cross-checking against an independent DSP implementation. |
+| `debug/` | Investigation/verification scripts: ROM record probes (`probe*.py`), driver voice tracer (`trace_sfx.py`), KON start-address check (`kon_start_check.py`), live-DSP vs `decode_stream` bit-exact check (`decode_equiv_check.py`). |
+| `build/` | Generated artifacts: `sgb_sfx_bank.bin` (+ `.vh`/`.json`), `sim_bank.hex`, per-effect `ref_XXX.hex` decode streams, `trace.json`. |
+| `wav/` | The 73 rendered effects: `A01..A30` (SFX-A) and `B01..B19` (SFX-B), 32 kHz 16-bit stereo (validation reference). |
+
+## Self-contained layout
+
+Everything the tools need lives in this folder -- no paths outside it -- with
+one exception:
+
+- **`SGB1.sfc`** -- the copyrighted SGB BIOS. It is *not* distributed here.
+  Provide your own dump: place it as `sgb_sfx/SGB1.sfc`, or set the
+  `SGB_BIOS` env var to its path.
+
+All scripts resolve defaults relative to their own location (`render.py`,
+`extract_apu.py`, `debug/*.py`, `spc2wav.py`, `wav2brr.py`), so the folder
+can be moved or checked out anywhere and still works.
 
 ## Requirements
 
-- **`SGB1.sfc`** -- the copyrighted SGB BIOS. Provide your own dump. Set the
-  path with the `SGB_BIOS` env var, or place it next to `render.py`.
 - Python 3 (standard library only).
 
 ## Regenerating the bank

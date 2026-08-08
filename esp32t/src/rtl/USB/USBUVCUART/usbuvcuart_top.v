@@ -1391,15 +1391,30 @@ module usbuac_ep(
     localparam SAMPLES_PER_MFRAME = (ASFREQ + 7999)/8000;
     localparam MAXBUFFER = BITS_PER_SUBSAMPLE * CH * SAMPLES_PER_MFRAME / 8;
 
-    reg write_to; /* mem area that is currently written to */
-    //reg [MAXBUFFER - 1:0][7:0] mem0;
-    //reg [MAXBUFFER - 1:0][7:0] mem1;
-    reg [MAXBUFFER*8 - 1:0] mem0;
-    reg [MAXBUFFER*8 - 1:0] mem1;
+    // AREA 2026-08: replaced the mem0/mem1 shift-register buffers with two
+    // slot-addressed banks. The old code barrel-shifted the full 192-bit
+    // buffer on every sample write ({sample, mem0[191:32]}), again on every
+    // microframe copy into mem1, and by one byte on every pop
+    // ({8'd0, mem1[191:8]}). Samples are 4 bytes and MAXBUFFER is 24 bytes,
+    // so each bank is now written at a slot index and read back out byte by
+    // byte from the bottom; the banks never move, only active_bank flips at
+    // the microframe boundary, and filling bottom-up leaves the oldest
+    // sample at the bottom when a frame completes, so the aligning copy
+    // becomes a pointer flip with no shift at all. Bit-exact in steady
+    // state (44.1 kHz at 5.5125 samples/microframe -> always 5 or 6).
+    // Corked startup frames (write_ptr1 < MAXBUFFER-4 -> len 0) present
+    // zero bytes exactly like the old code: both the switch_complete byte 0
+    // and the pop path below are qualified by write_ptr1 >= MAXBUFFER-4, so
+    // even the never-transmitted path matches the original.
+    reg [MAXBUFFER*8 - 1:0] bank0;
+    reg [MAXBUFFER*8 - 1:0] bank1;
+    reg active_bank; /* bank currently being written */
+    wire [MAXBUFFER*8 - 1:0] rbank; /* completed frame being read out */
     // AREA 2026-08: trimmed 12->5 bits; the pointers only ever reach
     // MAXBUFFER (24) in steps of 4.
     reg [4:0] write_ptr0;
     reg [4:0] write_ptr1;
+    reg [4:0] byte_ptr; /* next byte of the completed frame to send */
 
     reg [3:0] pState;
 
@@ -1435,6 +1450,9 @@ module usbuac_ep(
 
     reg p_sample_ready;
 
+    /* after active_bank flips, the just-completed frame is in the OTHER bank */
+    assign rbank = active_bank ? bank0 : bank1;
+
     always@(posedge pClk) begin
         if (usb_sof_rise) begin
             switch_active <= 1;
@@ -1446,30 +1464,49 @@ module usbuac_ep(
         switch_complete <= 0;
         if (store_state) begin
             if (write_ptr0 != MAXBUFFER) begin
-                mem0 <= {sample, mem0[MAXBUFFER*8 - 1:32]};
+                // write_ptr0 is a BYTE offset (steps of 4); the bit base is
+                // write_ptr0*8. Sample 0 lands at [31:0], sample 5 at [191:160].
+                if (active_bank)
+                    bank1[{write_ptr0, 3'b000} +: 32] <= sample;
+                else
+                    bank0[{write_ptr0, 3'b000} +: 32] <= sample;
                 write_ptr0 <= write_ptr0 + 12'd4;
             end
             store_state <= 1'b0;
         end else begin
             if (switch_active) begin
                 write_ptr1 <= write_ptr0;
-                if (write_ptr0 != MAXBUFFER)
-                    mem1 <= {32'd0, mem0[MAXBUFFER*8 - 1:32]};
-                else
-                    mem1 <= mem0;
+                // AREA 2026-08: the 192-bit mem0->mem1 copy (with the extra
+                // one-slot down-shift for partial frames) is now just the
+                // bank pointer flip above/below -- bottom-up filling already
+                // leaves the oldest sample at the bottom of the bank.
+                active_bank <= ~active_bank;
                 write_ptr0 <= 12'd0;
                 switch_active <= 0;
                 switch_complete <= 1;
             end
         end
         if(switch_complete) begin
-            uac_txdat <= mem1[7:0];
-            mem1 <= {8'd0, mem1[MAXBUFFER*8 - 1:8]};
+            // Same cork guard as the pop path: a corked frame (len 0) kept
+            // mem1[7:0] at zero in the old code because <5 samples leave the
+            // bottom slot empty; rbank[7:0] would otherwise show sample 0's
+            // LSB. Never observed (zero-length frames don't transmit), but
+            // keeps the path identical to the original.
+            uac_txdat <= (write_ptr1 >= MAXBUFFER - 4) ? rbank[7:0] : 8'd0;
+            byte_ptr <= 5'd1;
             uac_txdat_len <= (write_ptr1 >= MAXBUFFER - 4) ? write_ptr1 : 0;
             uac_txcork <= 1'b0;
         end else if (uac_txpop) begin
-            uac_txdat <= mem1[7:0];
-            mem1 <= {8'd0, mem1[MAXBUFFER*8 - 1:8]};
+            // AREA 2026-08: indexed byte read instead of shifting the
+            // bank. byte_ptr saturates at write_ptr1, after which reads
+            // return 0 -- same as the old mem1 once it had been fully
+            // drained (zeros shifted in). The write_ptr1 >= MAXBUFFER-4
+            // term keeps corked (len-0) frames presenting 0 on any stray
+            // pop, as the old code did.
+            uac_txdat <= (byte_ptr < write_ptr1 && write_ptr1 >= MAXBUFFER - 4)
+                         ? rbank[{byte_ptr, 3'b000} +: 8] : 8'd0;
+            if (byte_ptr < write_ptr1)
+                byte_ptr <= byte_ptr + 5'd1;
         end
     end
 endmodule

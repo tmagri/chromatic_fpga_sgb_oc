@@ -39,9 +39,16 @@ def render(path, out, seconds=45.0):
     print(f"{os.path.basename(path)} -> {os.path.basename(out)}: {len(audio)/32000:.1f}s, halted={cpu.halted}")
 
 if __name__ == '__main__':
-    src = sys.argv[1] if len(sys.argv) > 1 else '/Users/troymagri/Desktop/Super Gameboy Samples'
-    dst = sys.argv[2] if len(sys.argv) > 2 else '/Users/troymagri/Desktop/Super Gameboy Samples/wav'
+    # Defaults live inside this folder so the tree is self-contained.
+    # .spc dumps are copyrighted SGB material -- provide your own in ./spc.
+    _here = os.path.dirname(os.path.abspath(__file__))
+    default_src = os.path.join(_here, 'spc')
+    default_dst = os.path.join(_here, 'spc', 'wav')
+
+    src = sys.argv[1] if len(sys.argv) > 1 else default_src
+    dst = sys.argv[2] if len(sys.argv) > 2 else default_dst
     secs = float(sys.argv[3]) if len(sys.argv) > 3 else 45.0
+    
     os.makedirs(dst, exist_ok=True)
     for fn in sorted(os.listdir(src)):
         if fn.lower().endswith('.spc'):
