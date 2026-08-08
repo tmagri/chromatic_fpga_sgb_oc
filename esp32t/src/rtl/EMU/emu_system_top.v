@@ -254,20 +254,29 @@ module emu_system_top
     // SGB commands in a single pass. The core only needs a static
     // enable for the SGB palette/multitap engine now merged into gb.v.
     //
-    // sgb_detected is PER-SESSION: set when the running cart's header is
-    // snooped as SGB during the boot ROM, and cleared only on reset_n (cart
-    // removal / PLL unlock / power). It is deliberately STICKY across
-    // gbreset so the EverDrive can resume an SGB game with a no-reset jump
-    // and keep the SGB engine alive (see below). The garbage-packet risk
-    // from non-SGB software's joypad polling is handled by the idle
-    // watchdog inside gb.v, which aborts any partial packet before a
-    // 128-bit garbage frame can assemble.
+    // sgb_detected is PER-BOOT: set when the running cart's header is
+    // snooped as SGB during the boot ROM, and cleared on EVERY system
+    // reset (gbreset: EverDrive menu return / reboot, plus reset_n for
+    // cart removal / PLL unlock / power). Clearing on gbreset is what
+    // stops a stale SGB enable from bleeding into the next boot: after an
+    // SGB game, a reset to the EverDrive OS and a subsequent launch of a
+    // GBC or dual-mode GBC/SGB cart must NOT inherit the engine -- with
+    // it left armed, isGBC_game was masked off (see the u_gb hookup)
+    // and the game ran as a corrupted GBC/SGB hybrid. A genuine SGB
+    // boot re-arms immediately: the latch condition is level-based, so as
+    // soon as the boot ROM re-reads $0146/$014B and isSGB_game reasserts,
+    // the flag re-latches within the same boot. EverDrive no-reset jumps
+    // never assert gbreset, so they see whatever state the reset left
+    // behind -- and any reset-based resume re-snoops and re-arms.
+    // The garbage-packet risk from non-SGB software's joypad polling is
+    // handled by the idle watchdog inside gb.v, which aborts any partial
+    // packet before a 128-bit garbage frame can assemble.
     // The boot-blackout logic does NOT use sgb_detected directly -- it uses
     // boot_sgb (declared below) which IS cleared on gbreset, so the
     // EverDrive OS menu after an SGB exit gets the fast non-SGB path.
     // Cart removal clears both flags via CART_DET -> memrst -> reset_n.
     // ----------------------------------------------------------------
-    reg sgb_detected;   // sticky: 1 = an SGB game booted this power session
+    reg sgb_detected;   // per-boot: 1 = the currently booting cart is SGB
     wire sgb_pal_ready; // SGB engine has a live palette (boot blackout gate)
     wire sgb_trn_active; // SGB transfer (PAL_TRN etc.) in progress
 
@@ -283,19 +292,25 @@ module emu_system_top
     // but the hardware enable/disable itself is immediate.
     wire sgb_enabled = ~sgb_disabled;
 
-    // Sticky across gbreset on purpose: the EverDrive resumes games with a
-    // no-reset jump, so the resumed game must keep its engine. The EDGB OS
-    // header is CGB-flagged ($0143=$80, title "GBXOS"), so the OS boot
-    // itself never latches the flag -- the OS menu simply runs with the
-    // engine armed (as it would on real SGB hardware), and the boot
-    // blackout logic below handles the stale OS palette at resume.
-    // Cleared on reset_n (cart removal / PLL unlock / power) or when the
-    // user switches SGB mode off (sgb_disabled).
+    // Cleared on EVERY system reset (gbreset / gbreset_ungated) and on
+    // reset_n (cart removal / PLL unlock / power) or when the user
+    // switches SGB mode off (sgb_disabled). This mirrors the universal
+    // boot ROM's own SgbFlag hygiene: the software flag is zeroed at the
+    // start of every boot so a stale detection cannot survive a cart
+    // swap, and the hardware enable must follow the same rule -- the
+    // header capture flags above are already cleared on gbreset, so the
+    // snooped isSGB_game re-evaluates cleanly for each new boot. The
+    // EDGB OS header is CGB-flagged ($0143=$80, title "GBXOS"), so the
+    // OS boot never latches the flag, and the boot blackout logic below
+    // handles the stale OS palette at resume.
     always @(posedge hclk or negedge reset_n) begin
         if (~reset_n)
             sgb_detected <= 1'b0;
         else if (sgb_disabled)
             sgb_detected <= 1'b0;   // user forced GB mode: disarm the engine
+        else if (gbreset_ungated || gbreset)
+            sgb_detected <= 1'b0;   // system reset: disarm so stale SGB state
+                                    // never bleeds into the next boot
         else if (isSGB_game && !isGBC_game)
             sgb_detected <= 1'b1;   // latch when the header is snooped during boot
     end
@@ -673,9 +688,11 @@ module emu_system_top
     reg [3:0]  pal_ready_dly;
     reg        gb_vsync_d;
 
-    // boot_sgb: SGB status for the CURRENT boot only. Unlike sgb_detected
-    // (which is deliberately sticky across gbreset so EverDrive no-reset
-    // resume keeps the SGB engine alive), boot_sgb clears on every reset.
+    // boot_sgb: SGB status for the CURRENT boot only. Like sgb_detected
+    // (which is now also cleared on every gbreset so stale SGB state
+    // cannot survive a cart swap), boot_sgb clears on every reset; it
+    // exists separately because it additionally clears on the boot-ROM
+    // enable rising edge and drives the blackout path.
     // This lets the EverDrive OS menu (CGB-flagged, non-SGB header) use
     // the fast non-SGB blackout path even after an SGB game was played in
     // the same session — without it, sgb_detected is still 1 when the OS
