@@ -42,16 +42,27 @@ module mem_system_top #(parameter ISSIMU=0)
     input   [2:0]       hSfxIndex,
     output signed [15:0] hSfxPcm,
     output              hSfxPcmValid,
-    output              hSfxPlaying
+    output              hSfxPlaying,
+
+    // SGB N-SPC music engine (sgb_music): sequence + BRR bank lives in
+    // PSRAM, streamed on the 7th arbiter port; stereo PCM out in hClk.
+    input               hMusicStart,
+    input               hMusicStop,
+    input   [2:0]       hMusicSong,
+    output signed [15:0] hMusicPcmL,
+    output signed [15:0] hMusicPcmR,
+    output              hMusicPcmValid,
+    output              hMusicPlaying
 );
     
-    localparam RAMPORTCOUNT = 6;
+    localparam RAMPORTCOUNT = 7;
     localparam RAMPORT_BIST = 0;
     localparam RAMPORT_QSPI = 1;
     localparam RAMPORT_FBRD = 2;
     localparam RAMPORT_FBWR = 3;
     localparam RAMPORT_FBRDOSD = 4;
     localparam RAMPORT_SFX = 5;
+    localparam RAMPORT_MUSIC = 6;
     
     typedef logic tRAMIn_request     [RAMPORTCOUNT];
     typedef logic tRAMIn_RnW         [RAMPORTCOUNT];
@@ -271,6 +282,35 @@ module mem_system_top #(parameter ISSIMU=0)
         .hPcmValid(hSfxPcmValid),
         .hPcm(hSfxPcm),
         .hPlaying(hSfxPlaying)
+    );
+
+    // SGB N-SPC music bank playback: streams the MSGB bank (tracker
+    // sequence + BRR samples, BANK_BASE inside sgb_music.v) from PSRAM on
+    // the 7th arbiter port, decodes to stereo PCM in the hClk domain.
+    sgb_music u_sgb_music(
+        .xClk(xClk),
+        .xReset(reset),
+        .xRamReady(BIST_finished),
+
+        .xRamReq(RAMIn_request[RAMPORT_MUSIC]),
+        .xRamRnW(RAMIn_RnW[RAMPORT_MUSIC]),
+        .xRamAddr(RAMIn_addr[RAMPORT_MUSIC]),
+        .xRamDin(RAMIn_din[RAMPORT_MUSIC]),
+        .xRamBurstLen(RAMIn_burst_length[RAMPORT_MUSIC]),
+        .xRamDone(RAMOut_done[RAMPORT_MUSIC]),
+        .xRamDoutValid(RAMOut_dout_valid[RAMPORT_MUSIC]),
+        .xRamDout(RAM_dout),
+
+        .hClk(hClk),
+        .hReset(reset),
+        .hStart(hMusicStart),
+        .hStop(hMusicStop),
+        .hSong(hMusicSong),
+
+        .hPcmValid(hMusicPcmValid),
+        .hPcmL(hMusicPcmL),
+        .hPcmR(hMusicPcmR),
+        .hPlaying(hMusicPlaying)
     );
 
 endmodule

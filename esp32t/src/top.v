@@ -354,6 +354,16 @@ module top #(parameter ISSIMU=0)
     wire        sfx_pcm_valid;
     wire        sfx_playing;
 
+    // SGB N-SPC music engine: start/stop/song from the emulator, stereo PCM
+    // back to the emulator audio mix. Engine is in mem_system_top.
+    wire        music_start;
+    wire        music_stop;
+    wire [2:0]  music_song;
+    wire signed [15:0] music_pcm_l;
+    wire signed [15:0] music_pcm_r;
+    wire        music_pcm_valid;
+    wire        music_playing;
+
     aud_system_top u_aud_system_top(
         .gClk(gClk),
         .hClk(hClk),
@@ -429,7 +439,17 @@ module top #(parameter ISSIMU=0)
         .hSfxIndex(sfx_index),
         .hSfxPcm(sfx_pcm),
         .hSfxPcmValid(sfx_pcm_valid),
-        .hSfxPlaying(sfx_playing)
+        .hSfxPlaying(sfx_playing),
+
+        // SGB N-SPC music engine (control from the emulator,
+        // stereo PCM back to the emulator audio mix)
+        .hMusicStart(music_start),
+        .hMusicStop(music_stop),
+        .hMusicSong(music_song),
+        .hMusicPcmL(music_pcm_l),
+        .hMusicPcmR(music_pcm_r),
+        .hMusicPcmValid(music_pcm_valid),
+        .hMusicPlaying(music_playing)
     );
 
     wire IR_RX_FILTER;
@@ -532,6 +552,15 @@ module top #(parameter ISSIMU=0)
         .sfx_pcm(sfx_pcm),
         .sfx_pcm_valid(sfx_pcm_valid),
         .sfx_playing(sfx_playing),
+
+        // SGB N-SPC music engine (sgb_music in mem_system_top)
+        .music_start(music_start),
+        .music_stop(music_stop),
+        .music_song(music_song),
+        .music_pcm_l(music_pcm_l),
+        .music_pcm_r(music_pcm_r),
+        .music_pcm_valid(music_pcm_valid),
+        .music_playing(music_playing),
         // video
         .LCD_INIT_DONE(LCD_INIT_DONE),
         .gb_lcd_clkena(gb_lcd_clkena),

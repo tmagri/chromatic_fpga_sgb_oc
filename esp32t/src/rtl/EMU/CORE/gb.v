@@ -92,6 +92,17 @@ module gb (
     input         sfx_pcm_valid,
     input         sfx_playing,
 
+    // SGB N-SPC music engine (sgb_music lives in mem_system_top):
+    // start/stop/song out from the SOUND packet handler, stereo PCM in
+    // for mixing; music_playing gates the APU passthrough.
+    output        music_start,
+    output        music_stop,
+    output [2:0]  music_song,
+    input signed [15:0] music_pcm_l,
+    input signed [15:0] music_pcm_r,
+    input         music_pcm_valid,
+    input         music_playing,
+
     // Megaduck?
     input megaduck,
 
@@ -1135,6 +1146,15 @@ assign sfx_start = sfx_start_r;
 assign sfx_stop  = sfx_stop_r;
 assign sfx_index = sfx_index_r;
 
+// SGB N-SPC music trigger (sgb_music in mem_system_top). The SOUND packet's
+// Z byte (byte 4) selects the song: 0x10..0x17 start song 0..7, 0x00 stops.
+reg       music_start_r = 1'b0;
+reg       music_stop_r  = 1'b0;
+reg [2:0] music_song_r  = 3'd0;
+assign music_start = music_start_r;
+assign music_stop  = music_stop_r;
+assign music_song  = music_song_r;
+
 // Map a SGB SFX number to a bank index. hit=1 when the number is one of the
 // banked effects. These are the 8 effects Kirby Dream Land 2 uses (see its
 // SGBSFXPackets table). SFX-A numbers map to indices 0..2, SFX-B to 3..7.
@@ -1199,12 +1219,23 @@ wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> SGB_PCM_SHIFT) : 
 localparam [2:0] SFX_PCM_SHIFT = 3'd6;
 wire signed [15:0] sfx_pcm_att = isSGB ? ($signed(sfx_pcm) >>> SFX_PCM_SHIFT) : 16'd0;
 
-wire [17:0] mix_l = {{2{apu_l[15]}}, apu_l}
+// N-SPC music engine stereo PCM (sgb_music). Full level: while it plays it
+// IS the soundtrack, and the native APU passthrough is muted instead
+// (real SGB hands audio over to the SPC700 program for these scenes).
+wire signed [15:0] music_l = isSGB ? $signed(music_pcm_l) : 16'd0;
+wire signed [15:0] music_r = isSGB ? $signed(music_pcm_r) : 16'd0;
+wire        apu_mute_music = isSGB && music_playing;
+wire [15:0] apu_l_g = apu_mute_music ? 16'd0 : apu_l;
+wire [15:0] apu_r_g = apu_mute_music ? 16'd0 : apu_r;
+
+wire [17:0] mix_l = {{2{apu_l_g[15]}}, apu_l_g}
                   + {{2{sgb_pcm_att[15]}}, sgb_pcm_att}
-                  + {{2{sfx_pcm_att[15]}}, sfx_pcm_att};
-wire [17:0] mix_r = {{2{apu_r[15]}}, apu_r}
+                  + {{2{sfx_pcm_att[15]}}, sfx_pcm_att}
+                  + {{2{music_l[15]}}, music_l};
+wire [17:0] mix_r = {{2{apu_r_g[15]}}, apu_r_g}
                   + {{2{sgb_pcm_att[15]}}, sgb_pcm_att}
-                  + {{2{sfx_pcm_att[15]}}, sfx_pcm_att};
+                  + {{2{sfx_pcm_att[15]}}, sfx_pcm_att}
+                  + {{2{music_r[15]}}, music_r};
 wire signed [17:0] mix_l_s = mix_l;
 wire signed [17:0] mix_r_s = mix_r;
 assign audio_l = (mix_l_s >  18'sd32767)  ? 16'h7FFF :
@@ -1804,6 +1835,9 @@ always @(posedge clk_sys) begin
 		// sgb_sfx_play pulses: one ce-cycle wide, edge-detected on hclk
 		sfx_start_r <= 0;
 		sfx_stop_r  <= 0;
+		// sgb_music pulses: same pattern
+		music_start_r <= 0;
+		music_stop_r  <= 0;
 
 		// mask_en intentionally NOT cleared on LCD power-off: games (e.g.
 		// Game & Watch Gallery) set MASK_EN around screen loads and toggle
@@ -2003,6 +2037,18 @@ always @(posedge clk_sys) begin
 								sfx_start_r <= 1'b1;
 								sfx_index_r <= sfx_hit_a[2:0];
 								sfx_is_b    <= 1'b0;
+							end
+							// N-SPC music engine: Z byte 0x10..0x17 starts
+							// song 0..7; a quiescent packet (Z=0 and no SFX
+							// numbers) stops. Requiring the SFX bytes to be
+							// zero keeps plain SFX triggers (which also
+							// carry Z=0) from killing active music.
+							if (data == 8'h00 && sfx_a_num[6:0] == 7'd0 &&
+							    sfx_b_num[6:0] == 7'd0) begin
+								music_stop_r <= 1'b1;
+							end else if (data[7:4] == 4'h1) begin
+								music_start_r <= 1'b1;
+								music_song_r  <= data[2:0];
 							end
 						end
 					end

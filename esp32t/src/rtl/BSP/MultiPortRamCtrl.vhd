@@ -8,7 +8,8 @@ use IEEE.numeric_std.all;
 
 package pMultiPortPSRAM is
 
-   constant RAMPORTCOUNT : integer := 6;
+   -- Must match RAMPORTCOUNT in mem_system_top.sv (port 6 = sgb_music).
+   constant RAMPORTCOUNT : integer := 7;
 
    type tRAMIn_request         is array(0 to RAMPORTCOUNT - 1) of std_logic;
    type tRAMIn_RnW             is array(0 to RAMPORTCOUNT - 1) of std_logic;

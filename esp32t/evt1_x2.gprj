@@ -39,6 +39,7 @@
         <File path="src/rtl/EMU/CORE/link.v" type="file.verilog" enable="1"/>
         <File path="src/rtl/EMU/CORE/sgb_snd.v" type="file.verilog" enable="1"/>
         <File path="src/rtl/EMU/CORE/sgb_sfx_play.v" type="file.verilog" enable="1"/>
+        <File path="src/rtl/EMU/CORE/sgb_music/sgb_music.v" type="file.verilog" enable="1"/>
         <File path="src/rtl/EMU/CORE/sprites.v" type="file.verilog" enable="1"/>
         <File path="src/rtl/EMU/CORE/video.v" type="file.verilog" enable="1"/>
         <File path="src/rtl/EMU/CORE/videoBypass.v" type="file.verilog" enable="1"/>

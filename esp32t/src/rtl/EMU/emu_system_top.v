@@ -67,7 +67,17 @@ module emu_system_top
     output [2:0]        sfx_index,
     input signed [15:0] sfx_pcm,
     input               sfx_pcm_valid,
-    input               sfx_playing
+    input               sfx_playing,
+
+    // SGB N-SPC music engine (sgb_music in mem_system_top): start/stop/song
+    // from gb.v's SOUND packet handling, stereo PCM returns to gb.v mix.
+    output              music_start,
+    output              music_stop,
+    output [2:0]        music_song,
+    input signed [15:0] music_pcm_l,
+    input signed [15:0] music_pcm_r,
+    input               music_pcm_valid,
+    input               music_playing
 
 );
 
@@ -509,6 +519,14 @@ module emu_system_top
     assign sfx_stop  = gb_sfx_stop;
     assign sfx_index = gb_sfx_index;
 
+    // SGB N-SPC music trigger outputs from gb.v (same pattern as sfx).
+    wire        gb_music_start;
+    wire        gb_music_stop;
+    wire [2:0]  gb_music_song;
+    assign music_start = gb_music_start;
+    assign music_stop  = gb_music_stop;
+    assign music_song  = gb_music_song;
+
     gb u_gb(
         .reset(gbreset),
 
@@ -573,6 +591,15 @@ module emu_system_top
         .sfx_pcm(sfx_pcm),
         .sfx_pcm_valid(sfx_pcm_valid),
         .sfx_playing(sfx_playing),
+
+        // SGB N-SPC music engine: start/stop/song out, stereo PCM in
+        .music_start(gb_music_start),
+        .music_stop(gb_music_stop),
+        .music_song(gb_music_song),
+        .music_pcm_l(music_pcm_l),
+        .music_pcm_r(music_pcm_r),
+        .music_pcm_valid(music_pcm_valid),
+        .music_playing(music_playing),
 
         // Megaduck?
         .megaduck(1'd0),

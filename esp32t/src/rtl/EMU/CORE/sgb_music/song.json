@@ -1,0 +1,14 @@
+{
+ "name": "synthetic-placeholder",
+ "source": "/Users/troymagri/Desktop/chromatic_fpga_sgb_oc/esp32t/src/rtl/EMU/CORE/sgb_music/synthetic_song.bin",
+ "song_table": 7936,
+ "song": 0,
+ "patches": 8448,
+ "sample_dir": 9216,
+ "voice_map": [
+  0,
+  1
+ ],
+ "default_tempo": 224,
+ "loop": true
+}
