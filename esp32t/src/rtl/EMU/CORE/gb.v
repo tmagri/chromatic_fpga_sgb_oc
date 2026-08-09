@@ -1187,7 +1187,7 @@ sgb_snd sgb_snd_inst (
 // corruption.
 // Tuning (total gain vs BRR full scale): 2 = -12dB (too loud on the
 // chromatic codec path), 3 = -18dB, 4 = -24dB, 5 = -30dB.
-localparam [2:0] SGB_PCM_SHIFT = 3'd5;
+localparam [2:0] SGB_PCM_SHIFT = 3'd6;
 wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> SGB_PCM_SHIFT) : 16'd0;
 
 // Built-in SFX bank PCM (sgb_sfx_play). The decoded BRR is full-scale SNES-DSP
@@ -1661,7 +1661,7 @@ wire p14 = joy_p54[0];
 wire p15 = joy_p54[1];
 
 reg old_p15, old_p14;
-reg [16:0] pkt_idle_cnt;      // SGB packet idle watchdog: ce ticks since last P14/P15 edge
+reg [15:0] pkt_idle_cnt;      // SGB packet idle watchdog: ce ticks since last P14/P15 edge
 reg [7:0] data;
 reg [3:0] byte_cnt;
 reg [2:0] cnt, packet_cnt;
@@ -1774,20 +1774,17 @@ always @(posedge clk_sys) begin
 			// cycle Wait7000 inter-packet gap is a no-op (packet_end is already
 			// set and the counters are already cleared by the reset pulse of the
 			// next packet).
-			// Change the max value checks to 17'h1FFFF
-            if ((old_p15 != p15) | (old_p14 != p14))
-                pkt_idle_cnt <= 0;
-            else if (pkt_idle_cnt != 17'h1FFFF) 
-                pkt_idle_cnt <= pkt_idle_cnt + 1'b1;
+			if ((old_p15 != p15) | (old_p14 != p14))
+				pkt_idle_cnt <= 0;
+			else if (pkt_idle_cnt != 16'hFFFF)
+				pkt_idle_cnt <= pkt_idle_cnt + 1'b1;
 
-            if (&pkt_idle_cnt) begin // Will now trigger at 17'h1FFFF
-                packet_end <= 1'b1;
-                cnt        <= 0;
-                byte_cnt   <= 0;
-                byte_done  <= 1'b0;
-                packet_cnt   <= 0;
-				data_set_len <= 0;
-            end
+			if (&pkt_idle_cnt) begin
+				packet_end <= 1'b1;
+				cnt        <= 0;
+				byte_cnt   <= 0;
+				byte_done  <= 1'b0;
+			end
 		end
 
 		trn_start <= 0;
@@ -2041,11 +2038,10 @@ always @(posedge clk_sys) begin
 		// joypad_id flicker to 1 for one cycle on every P15 rising edge,
 		// so an SGB-detection read could see $E and the game fell back to
 		// non-SGB greyscale (Game & Watch Gallery).
-		// Allow cycling even if MLT_REQ isn't fully set, which helps non-standard detection probes
-        if (isSGB & ~old_p15 & p15)
-            joypad_id <= (joypad_id + 1'b1);
-        else
-            joypad_id <= (joypad_id & mlt_ctrl);
+		if (isSGB & ~old_p15 & p15 & (mlt_ctrl != 2'd0))
+			joypad_id <= (joypad_id + 1'b1);
+		else
+			joypad_id <= (joypad_id & mlt_ctrl);
 	end
 end
 
@@ -2172,13 +2168,10 @@ always @(posedge clk_sys) if (ce) sgb_lcd_on_prev <= lcd_on_sgb;
 always @(posedge clk_sys) begin
 	if (reset_ss) begin
 		// Preserve output_sgb_pal and palette[] across gbreset so the
-		// EverDrive can resume / load-state (no-reset jumps) without losing
-		// the game's SGB palette. sgb_detected itself is now cleared on
-		// gbreset, but a resumed SGB game never asserts gbreset, and the
-		// overlay is gated by isSGB anyway, so retained palette state is
-		// inert on non-SGB boots. Gowin regs init to 0 on power-on, and
-		// the game's PAL_SET overwrites on boot, so pal_clear is not
-		// needed here.
+		// EverDrive can resume / load-state without losing the game's SGB
+		// palette. Matches sgb_detected's deliberate stickiness. Gowin
+		// regs init to 0 on power-on, and the game's PAL_SET overwrites
+		// on boot, so pal_clear is not needed here.
 		pal_set_busy <= 0;
 		pal_set_wait <= 0;
 		pal_set_cnt <= 0;
