@@ -43,7 +43,11 @@
 module sgb_snd #(
     // sample tick divider: clk_sys cycles per output sample, minus one.
     // 1521 -> 16.777216 MHz / 1522 ~ 11023.1 Hz (-0.017%, inaudible).
-    parameter [11:0] TICK_PERIOD = 12'd1521
+    parameter [11:0] TICK_PERIOD = 12'd1521,
+    parameter [7:0]  ENV_ATTACK_RATE  = 8'd2,   // sample ticks per envelope step
+    parameter [7:0]  ENV_DECAY_RATE   = 8'd2,
+    parameter [7:0]  ENV_SUSTAIN_LVL  = 8'd255, // 0-255 (255 = no decay loss)
+    parameter [7:0]  ENV_RELEASE_RATE = 8'd4
 )(
     input             clk_sys,
     input             reset,
@@ -86,6 +90,15 @@ module sgb_snd #(
     reg signed [15:0] prev1 = 16'sd0, prev2 = 16'sd0;   // BRR predictor history
     reg trig_old = 1'b0, sou_trn_old = 1'b0;
     reg [1:0]  sou_trn_cnt = 2'd0;           // SOU_TRN transfers seen (DKGB sends 2)
+
+    localparam [2:0] E_IDLE    = 3'd0,
+                     E_ATTACK  = 3'd1,
+                     E_DECAY   = 3'd2,
+                     E_SUSTAIN = 3'd3,
+                     E_RELEASE = 3'd4;
+    reg [2:0] env_state = E_IDLE;
+    reg [7:0] env_level = 8'd0;
+    reg [7:0] env_tick_cnt = 8'd0;
 
     wire sample_ready = sou_trn_cnt[1];
 
@@ -173,6 +186,60 @@ module sgb_snd #(
     wire [15:0] out16 = (acc >  20'sd32767) ? 16'h7FFF :
                         (acc < -20'sd32768) ? 16'h8000 : acc[15:0];
 
+    wire signed [15:0] signed_out16 = out16;
+    wire signed [24:0] pcm_mult = signed_out16 * $signed({1'b0, env_level});
+    wire [15:0] env_out16 = pcm_mult[23:8];
+
+    // --- ADSR Envelope Generator -------------------------------------------
+    always @(posedge clk_sys) begin
+        if (reset || !sgb_en) begin
+            env_state    <= E_IDLE;
+            env_level    <= 8'd0;
+            env_tick_cnt <= 8'd0;
+        end else if (trig) begin
+            if (snd_id[7] || snd_z == 8'd3) begin
+                if (env_state != E_IDLE) begin
+                    env_state    <= E_RELEASE;
+                    env_tick_cnt <= ENV_RELEASE_RATE;
+                end
+            end else if (snd_z == 8'd1 && sample_ready) begin
+                env_state    <= E_ATTACK;
+                env_level    <= 8'd0;
+                env_tick_cnt <= ENV_ATTACK_RATE;
+            end
+        end else if (tick) begin
+            case (env_state)
+                E_ATTACK: begin
+                    if (env_tick_cnt == 0) begin
+                        env_tick_cnt <= ENV_ATTACK_RATE;
+                        if (env_level == 8'd255) env_state <= E_DECAY;
+                        else env_level <= env_level + 8'd1;
+                    end else env_tick_cnt <= env_tick_cnt - 8'd1;
+                end
+                E_DECAY: begin
+                    if (env_tick_cnt == 0) begin
+                        env_tick_cnt <= ENV_DECAY_RATE;
+                        if (env_level <= ENV_SUSTAIN_LVL) begin
+                            env_level <= ENV_SUSTAIN_LVL;
+                            env_state <= E_SUSTAIN;
+                        end else env_level <= env_level - 8'd1;
+                    end else env_tick_cnt <= env_tick_cnt - 8'd1;
+                end
+                E_SUSTAIN: begin
+                    // Hold level until release triggered
+                end
+                E_RELEASE: begin
+                    if (env_tick_cnt == 0) begin
+                        env_tick_cnt <= ENV_RELEASE_RATE;
+                        if (env_level == 8'd0) env_state <= E_IDLE;
+                        else env_level <= env_level - 8'd1;
+                    end else env_tick_cnt <= env_tick_cnt - 8'd1;
+                end
+                default: env_level <= 8'd0;
+            endcase
+        end
+    end
+
     // --- main FSM ----------------------------------------------------------
     always @(posedge clk_sys) begin
         trig_old    <= snd_trig;
@@ -193,9 +260,9 @@ module sgb_snd #(
         end else if (trig) begin
             // DKGB SOUND packets: Z=1 -> play from SAMPLE_BASE; X bit7 or Z=3
             // -> stop. Other Z leave the playing sample alone.
+            // ADSR: Stop commands trigger release instead of jumping to IDLE instantly.
             if (snd_id[7] || snd_z == 8'd3) begin
-                state   <= S_IDLE;
-                pcm_out <= 16'd0;
+                // Do not instantly mute; let the ADSR release phase handle it
             end else if (snd_z == 8'd1 && sample_ready) begin
                 block_ptr <= SAMPLE_BASE;
                 prev1     <= 16'sd0;
@@ -216,13 +283,14 @@ module sgb_snd #(
                     state      <= S_PLAY;
                 end
                 S_PLAY: if (tick) begin
-                    pcm_out <= out16;
+                    pcm_out <= env_out16; // Use the envelope-scaled output
                     prev2   <= prev1;
-                    prev1   <= out16;
-                    if (nib_i == 4'd15) begin
+                    prev1   <= out16;     // Predictor still uses raw out16
+                    if (env_state == E_IDLE) begin
+                        state <= S_IDLE;
+                    end else if (nib_i == 4'd15) begin
                         // The end-flag block's samples are real audio: emit
-                        // them all (pcm_out <= out16 above), then idle; the
-                        // IDLE state silences the held sample on the next tick.
+                        // them all (pcm_out <= env_out16 above).
                         if (brr_end) state <= S_IDLE;
                         else begin
                             block_ptr <= block_ptr + 12'd9;   // next block header

@@ -16,8 +16,8 @@
 `define SGB_SFX_TABLE_OFF 256
 `define SGB_SFX_BRR_OFF 2048
 `define SGB_SFX_SEG_OFF 43328
-`define SGB_SFX_SEG_ENTRIES 1062
-`define SGB_SFX_BANK_BYTES 47576
+`define SGB_SFX_SEG_ENTRIES 1039
+`define SGB_SFX_BANK_BYTES 47484
 // record  0: A01 Nintendo             SRCN $01 P=15272 tick=187 blocks=11 flags=1 count=6753 segs=1
 // record  1: A02 GameOver             SRCN $3E P=1639 tick=153 blocks=109 flags=1 count=1002 segs=82
 // record  2: A03 Drop                 SRCN $00 P=7488 tick=198 blocks=11 flags=1 count=4416 segs=114
@@ -50,7 +50,7 @@
 // record 29: A1E InsertAir            SRCN $38 P=894 tick=828 blocks=230 flags=1 count=94 segs=10
 // record 30: A1F SwordSwing           SRCN $39 P=2700 tick=3195 blocks=105 flags=1 count=607 segs=24
 // record 31: A20 WaterFalling         SRCN $3D P=2140 tick=2010 blocks=506 flags=1 count=772 segs=1
-// record 32: A21 Fire                 SRCN $00 P=5096 tick=420 blocks=11 flags=1 count=2906 segs=0
+// record 32: A21 Fire                 SRCN $3C P=5096 tick=8000 blocks=500 flags=1 count=2906 segs=0
 // record 33: A22 WallCollapsing       SRCN $34 P=2008 tick=2140 blocks=391 flags=0 count=0 segs=8
 // record 34: A23 Cancel               SRCN $25 P=2221 tick=723 blocks=62 flags=1 count=1013 segs=2
 // record 35: A24 Walking              SRCN $30 P=3332 tick=966 blocks=104 flags=1 count=150 segs=1
@@ -76,18 +76,18 @@
 // record 55: B08 LightningB           SRCN $3C P=178 tick=9543 blocks=500 flags=0 count=0 segs=27
 // record 56: B09 EarthquakeB          SRCN $3C P=126 tick=19173 blocks=500 flags=0 count=0 segs=2
 // record 57: B0A Avalanche            SRCN $37 P=1129 tick=1901 blocks=699 flags=3 count=0 segs=0
-// record 58: B0B Wave                 SRCN $3D P=1348 tick=1592 blocks=506 flags=1 count=1629 segs=0
+// record 58: B0B Wave                 SRCN $3D P=1348 tick=1592 blocks=506 flags=3 count=0 segs=0
 // record 59: B0C River                SRCN $3D P=1908 tick=1125 blocks=506 flags=3 count=0 segs=0
 // record 60: B0D Waterfall            SRCN $3D P=800 tick=2683 blocks=506 flags=3 count=0 segs=0
-// record 61: B0E SmallCharRunning     SRCN $07 P=5400 tick=397 blocks=11 flags=3 count=0 segs=0
+// record 61: B0E SmallCharRunning     SRCN $38 P=5400 tick=6000 blocks=230 flags=3 count=0 segs=0
 // record 62: B0F HorseRunning         SRCN $31 P=10903 tick=196 blocks=62 flags=0 count=0 segs=0
-// record 63: B10 WarningSound         SRCN $07 P=6804 tick=315 blocks=11 flags=1 count=1260 segs=0
+// record 63: B10 WarningSound         SRCN $07 P=6804 tick=315 blocks=11 flags=3 count=0 segs=0
 // record 64: B11 ApproachingCar       SRCN $39 P=2140 tick=1002 blocks=105 flags=3 count=0 segs=0
 // record 65: B12 JetFlying            SRCN $38 P=298 tick=7205 blocks=230 flags=3 count=0 segs=0
 // record 66: B13 UfoFlying            SRCN $3E P=1158 tick=1853 blocks=109 flags=3 count=0 segs=0
 // record 67: B14 ElectromagneticWaves SRCN $01 P=848 tick=2531 blocks=11 flags=3 count=0 segs=0
-// record 68: B15 ScoreUp              SRCN $17 P=3606 tick=595 blocks=54 flags=3 count=0 segs=0
-// record 69: B16 FireB                SRCN $00 P=8088 tick=265 blocks=11 flags=3 count=0 segs=0
+// record 68: B15 ScoreUp              SRCN $38 P=3606 tick=6000 blocks=230 flags=3 count=0 segs=0
+// record 69: B16 FireB                SRCN $3C P=8088 tick=8000 blocks=500 flags=3 count=0 segs=0
 // record 70: B17 CameraShutter        SRCN $37 P=9237 tick=333 blocks=699 flags=1 count=546 segs=3
 // record 71: B18 WriteFormanto        SRCN $31 P=3057 tick=744 blocks=62 flags=0 count=0 segs=1
-// record 72: B19 ShowUpTitle          SRCN $3E P=546 tick=7456 blocks=109 flags=1 count=101 segs=23
+// record 72: B19 ShowUpTitle          SRCN $3E P=546 tick=3932 blocks=109 flags=3 count=0 segs=0

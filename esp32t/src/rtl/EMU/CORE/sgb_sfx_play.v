@@ -228,7 +228,7 @@ module sgb_sfx_play #(
     // =====================================================================
     // hClk command encoding: gray sequence + {play,idx} payload
     // =====================================================================
-    wire [1:0] gray_inc = {cmd_seq[0], ~cmd_seq[0]};  // +1 on a 2-bit gray
+    wire [1:0] gray_inc = (cmd_seq[1] == cmd_seq[0]) ? 2'b01 : 2'b10;  // +1 on a 2-bit gray
     always @(posedge hClk or posedge hReset) begin
         if (hReset) begin
             cmd_seq <= 2'd0; cmd_pl <= 8'd0; hStart_q <= 0; hStop_q <= 0;

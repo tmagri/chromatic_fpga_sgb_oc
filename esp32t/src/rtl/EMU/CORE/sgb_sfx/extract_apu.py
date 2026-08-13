@@ -448,14 +448,17 @@ def classify(trace, samples, overrides):
                 # the trace ends early and it becomes a count-based one-shot.
                 # Traces without hit_cap data (old trace.json) fall back to
                 # the B-loop-set heuristic.
+                FORCE_FULL_LOOP = {'B0B', 'B10', 'B19'}
+                is_force = (key in FORCE_FULL_LOOP)
                 sustained = tr.get('hit_cap',
                                    side == 'B' and idx in render.B_LOOP)
+                if is_force: sustained = True
                 runs = tr.get('runs', [])
                 if smp is None:
                     rec['error'] = f"SRCN ${srcn:02X} has no directory entry"
                 elif P == 0 and not runs:
                     rec['error'] = f"traced pitch is 0 (SRCN ${srcn:02X})"
-                elif not smp['has_loop']:
+                elif not smp['has_loop'] and not is_force:
                     flags, count = 0, 0             # natural BRR end flag stops it
                 elif sustained and side == 'B':
                     flags, count = 3, 0             # loop region until SOUND stop
@@ -472,7 +475,10 @@ def classify(trace, samples, overrides):
                 rec['sustained'] = bool(sustained)
                 if smp is not None and 'error' not in rec:
                     brr_off = smp['brr_off']
-                    loop_off = smp['loop_off'] if smp['loop_off'] is not None else 0xFFFF
+                    if is_force:
+                        loop_off = brr_off
+                    else:
+                        loop_off = smp['loop_off'] if smp['loop_off'] is not None else 0xFFFF
                     blocks = smp['blocks']          # first-pass blocks incl. terminal
                 # ---- pitch envelope (record v5) ----
                 # Loop-forever ambiences keep a single (median) pitch: their
@@ -490,7 +496,7 @@ def classify(trace, samples, overrides):
                             'pitch': P, 'pitch_min': P0,
                             'rate_hz': round(R, 1), 'tick': tick,
                             'start_addr': smp['start'] if smp else None,
-                            'loop_addr': smp['loop'] if smp else None,
+                            'loop_addr': smp['start'] if (smp and is_force) else (smp['loop'] if smp else None),
                             'duration_s': round(dur, 3),
                             'blocks': smp['blocks'] if smp else None,
                             'segments': segs})
@@ -507,7 +513,7 @@ def classify(trace, samples, overrides):
                     blocks = smp['blocks']
                     rec['srcn'] = srcn
                     rec['start_addr'] = smp['start']
-                    rec['loop_addr'] = smp['loop']
+                    rec['loop_addr'] = smp['start'] if is_force else smp['loop']
                     rec['blocks'] = smp['blocks']
                     rec.pop('error', None)
                 if 'tick' in ov:

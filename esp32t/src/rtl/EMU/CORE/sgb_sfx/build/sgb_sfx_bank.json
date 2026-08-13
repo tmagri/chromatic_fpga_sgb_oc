@@ -4197,22 +4197,26 @@
   "side": "A",
   "attr_pitch": 1,
   "sustained": false,
-  "srcn": 0,
+  "srcn": 60,
   "energy_share": 1.0,
   "noise_share": 0.0,
   "pitch": 5096,
   "pitch_min": 5096,
   "rate_hz": 39812.5,
-  "tick": 420,
-  "start_addr": 19888,
-  "loop_addr": 19951,
+  "tick": 8000,
+  "start_addr": 51127,
+  "loop_addr": 55627,
   "duration_s": 1.21,
-  "blocks": 11,
+  "blocks": 500,
   "segments": [
    [
     2906,
     420
    ]
+  ],
+  "overridden": [
+   "srcn",
+   "tick"
   ],
   "seg_count": 0,
   "record": 32
@@ -5612,7 +5616,7 @@
   "name": "Wave",
   "side": "B",
   "attr_pitch": 0,
-  "sustained": false,
+  "sustained": true,
   "srcn": 61,
   "energy_share": 1.0,
   "noise_share": 0.0,
@@ -5621,15 +5625,10 @@
   "rate_hz": 10531.2,
   "tick": 1592,
   "start_addr": 55627,
-  "loop_addr": 55663,
+  "loop_addr": 55627,
   "duration_s": 2.501,
   "blocks": 506,
-  "segments": [
-   [
-    1629,
-    1592
-   ]
-  ],
+  "segments": [],
   "seg_count": 0,
   "record": 58
  },
@@ -5681,18 +5680,22 @@
   "side": "B",
   "attr_pitch": 3,
   "sustained": true,
-  "srcn": 7,
+  "srcn": 56,
   "energy_share": 1.0,
   "noise_share": 0.0,
   "pitch": 5400,
   "pitch_min": 5400,
   "rate_hz": 42187.5,
-  "tick": 397,
-  "start_addr": 19888,
-  "loop_addr": 19951,
+  "tick": 6000,
+  "start_addr": 44494,
+  "loop_addr": 44521,
   "duration_s": 5.005,
-  "blocks": 11,
+  "blocks": 230,
   "segments": [],
+  "overridden": [
+   "srcn",
+   "tick"
+  ],
   "seg_count": 0,
   "record": 61
  },
@@ -5727,7 +5730,7 @@
   "name": "WarningSound",
   "side": "B",
   "attr_pitch": 1,
-  "sustained": false,
+  "sustained": true,
   "srcn": 7,
   "energy_share": 1.0,
   "noise_share": 0.0,
@@ -5736,15 +5739,10 @@
   "rate_hz": 53156.2,
   "tick": 315,
   "start_addr": 19888,
-  "loop_addr": 19951,
+  "loop_addr": 19888,
   "duration_s": 0.559,
   "blocks": 11,
-  "segments": [
-   [
-    1260,
-    315
-   ]
-  ],
+  "segments": [],
   "seg_count": 0,
   "record": 63
  },
@@ -5838,18 +5836,22 @@
   "side": "B",
   "attr_pitch": 3,
   "sustained": true,
-  "srcn": 23,
+  "srcn": 56,
   "energy_share": 1.0,
   "noise_share": 0.0,
   "pitch": 3606,
   "pitch_min": 2838,
   "rate_hz": 28171.9,
-  "tick": 595,
-  "start_addr": 20995,
-  "loop_addr": 21454,
+  "tick": 6000,
+  "start_addr": 44494,
+  "loop_addr": 44521,
   "duration_s": 6.029,
-  "blocks": 54,
+  "blocks": 230,
   "segments": [],
+  "overridden": [
+   "srcn",
+   "tick"
+  ],
   "seg_count": 0,
   "record": 68
  },
@@ -5859,18 +5861,22 @@
   "side": "B",
   "attr_pitch": 2,
   "sustained": true,
-  "srcn": 0,
+  "srcn": 60,
   "energy_share": 1.0,
   "noise_share": 0.0,
   "pitch": 8088,
   "pitch_min": 8088,
   "rate_hz": 63187.5,
-  "tick": 265,
-  "start_addr": 19888,
-  "loop_addr": 19951,
+  "tick": 8000,
+  "start_addr": 51127,
+  "loop_addr": 55627,
   "duration_s": 6.037,
-  "blocks": 11,
+  "blocks": 500,
   "segments": [],
+  "overridden": [
+   "srcn",
+   "tick"
+  ],
   "seg_count": 0,
   "record": 69
  },
@@ -5947,117 +5953,20 @@
   "name": "ShowUpTitle",
   "side": "B",
   "attr_pitch": 0,
-  "sustained": false,
+  "sustained": true,
   "srcn": 62,
   "energy_share": 1.0,
   "noise_share": 0.0,
   "pitch": 546,
   "pitch_min": 259,
   "rate_hz": 4265.6,
-  "tick": 7456,
+  "tick": 3932,
   "start_addr": 60181,
-  "loop_addr": 60217,
+  "loop_addr": 60181,
   "duration_s": 0.423,
   "blocks": 109,
-  "segments": [
-   [
-    7,
-    7456
-   ],
-   [
-    2,
-    6260
-   ],
-   [
-    2,
-    5250
-   ],
-   [
-    3,
-    4436
-   ],
-   [
-    4,
-    3721
-   ],
-   [
-    3,
-    3125
-   ],
-   [
-    5,
-    2624
-   ],
-   [
-    7,
-    2208
-   ],
-   [
-    4,
-    6648
-   ],
-   [
-    2,
-    5577
-   ],
-   [
-    2,
-    4698
-   ],
-   [
-    4,
-    3932
-   ],
-   [
-    4,
-    3308
-   ],
-   [
-    5,
-    2777
-   ],
-   [
-    5,
-    2341
-   ],
-   [
-    6,
-    1964
-   ],
-   [
-    2,
-    5899
-   ],
-   [
-    3,
-    4959
-   ],
-   [
-    3,
-    4169
-   ],
-   [
-    4,
-    3514
-   ],
-   [
-    5,
-    2949
-   ],
-   [
-    4,
-    2479
-   ],
-   [
-    6,
-    2082
-   ],
-   [
-    9,
-    1749
-   ]
-  ],
-  "seg_count": 23,
+  "segments": [],
+  "seg_count": 0,
   "record": 72
  }
 }

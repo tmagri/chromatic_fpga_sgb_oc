@@ -21,6 +21,10 @@
 
 import wave, struct, json, os, argparse
 
+# Sustained-loop SFX-B effects whose rendered capture holds only one pass.
+# Force a full-track loop (loop point at byte 0).
+FORCE_FULL_LOOP = {'b0b', 'b10', 'b19'}
+
 def clamp16(v): return max(-32768, min(32767, v))
 
 def dec_sample(n, shift, filt, p1, p2):
@@ -150,6 +154,7 @@ def main():
         if side=='B':
             det=detect_loop(mono,a.rate)
             if det: loop_start,loop_len,keep=det
+            if stem in FORCE_FULL_LOOP: loop_start=0; keep=len(mono)
         enc=encode_brr(mono[:keep], loop_start_smp=loop_start)
         pad=(ALIGN-(len(bank)%ALIGN))%ALIGN
         bank+=b'\x00'*pad

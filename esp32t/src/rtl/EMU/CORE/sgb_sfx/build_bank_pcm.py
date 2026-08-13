@@ -29,7 +29,7 @@ ALIGN = 16
 # find a repeat region. The real SGB BIOS keeps these going until a SOUND
 # stop packet (e.g. B0B Wave on the KDL2 World 3 map): force a full-track
 # loop (loop point at byte 0).
-FORCE_FULL_LOOP = {'b0b'}
+FORCE_FULL_LOOP = {'b0b', 'b10', 'b19'}
 
 def main():
     ap = argparse.ArgumentParser()
