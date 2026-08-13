@@ -39,7 +39,7 @@ module mem_system_top #(parameter ISSIMU=0)
     // on xClk through the 6th arbiter port.
     input               hSfxStart,
     input               hSfxStop,
-    input   [2:0]       hSfxIndex,
+    input   [6:0]       hSfxIndex,
     output signed [15:0] hSfxPcm,
     output              hSfxPcmValid,
     output              hSfxPlaying
@@ -244,9 +244,10 @@ module mem_system_top #(parameter ISSIMU=0)
         .xAddress(RAMIn_addr[RAMPORT_FBWR])
     );
 
-    // SGB built-in SFX bank playback: streams the pre-rendered BRR bank from
-    // PSRAM (BANK_BASE, see sgb_sfx_play.v) on the 6th arbiter port and decodes
-    // it to PCM in the hClk domain. Ready is gated on BIST_finished like the
+    // SGB built-in SFX bank playback: a BRR HLE player that fetches each
+    // effect's record and streams the ROM's original BRR bytes from PSRAM
+    // (BANK_BASE, see sgb_sfx_play.v) on the 6th arbiter port, decoding them
+    // to PCM in the hClk domain. Ready is gated on BIST_finished like the
     // other PSRAM clients.
     sgb_sfx_play u_sgb_sfx_play(
         .xClk(xClk),

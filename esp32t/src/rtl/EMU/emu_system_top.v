@@ -64,7 +64,7 @@ module emu_system_top
     // come from gb.v's SOUND packet handling, decoded PCM returns to gb.v mix.
     output              sfx_start,
     output              sfx_stop,
-    output [2:0]        sfx_index,
+    output [6:0]        sfx_index,
     input signed [15:0] sfx_pcm,
     input               sfx_pcm_valid,
     input               sfx_playing
@@ -504,7 +504,7 @@ module emu_system_top
     // sfx_pcm/sfx_pcm_valid/sfx_playing directly.
     wire        gb_sfx_start;
     wire        gb_sfx_stop;
-    wire [2:0]  gb_sfx_index;
+    wire [6:0]  gb_sfx_index;
     assign sfx_start = gb_sfx_start;
     assign sfx_stop  = gb_sfx_stop;
     assign sfx_index = gb_sfx_index;

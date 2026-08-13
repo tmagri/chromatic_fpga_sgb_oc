@@ -349,7 +349,7 @@ module top #(parameter ISSIMU=0)
     // decoded PCM back to the emulator audio mix. Engine is in mem_system_top.
     wire        sfx_start;
     wire        sfx_stop;
-    wire [2:0]  sfx_index;
+    wire [6:0]  sfx_index;
     wire signed [15:0] sfx_pcm;
     wire        sfx_pcm_valid;
     wire        sfx_playing;

@@ -15,17 +15,33 @@
 #     DSP pitch the driver plays it, and how long a one-shot runs.
 #
 # Bank layout (build/sgb_sfx_bank.bin, loaded by the MCU at PSRAM 0x100000):
-#   0x000  header   'SFXB', u16 version, u16 count, u32 table_off, u32 brr_off
-#   0x100  table    73 x 16-byte little-endian records (record v4), index =
-#                     effect: A01..A30 -> 0..47, B01..B19 -> 48..72
-#                     u32 brr_off   byte offset of first BRR block in region
-#                     u32 loop_off  byte offset of loop block; 0xFFFFFFFF = none
-#                     u16 tick      hClk divider reload for the effect rate
-#                     u16 blocks    first-pass block count (incl. terminal block)
-#                     u16 flags     bit0 = loop region valid, bit1 = loop forever
-#                     u16 count     total BLOCKS to emit (0 = natural end /
-#                                   loop-forever); 16-sample granularity
+#   0x000  header   'SFXB', u16 version(5), u16 count, u32 table_off,
+#                    u32 brr_off, u32 seg_off
+#   0x100  table    73 x 16-byte little-endian records (record v5, 8 x u16),
+#                    index = effect: A01..A30 -> 0..47, B01..B19 -> 48..72
+#                     u16 brr_off    byte offset of first BRR block in region
+#                     u16 loop_off   byte offset of loop block; 0xFFFF = none
+#                     u16 tick       segment-0 hClk divider reload
+#                     u16 blocks     first-pass block count (incl. terminal)
+#                     u16 flags      bit0 = loop region valid,
+#                                    bit1 = loop forever
+#                     u16 count      total BLOCKS to emit (0 = natural end /
+#                                    loop-forever); 16-sample granularity
+#                     u16 seg_off    entry index into the segment region
+#                     u16 seg_count  envelope entries (0 = fixed pitch)
 #   0x800  region   verbatim $4DB0 BRR record (byte offsets above are into it)
+#   seg_off region  pitch envelope: seg_count x (u16 blocks16 of the current
+#                    segment, u16 tick of the NEXT segment). The first
+#                    segment's tick is the record's tick field; the final
+#                    segment has no entry and holds its tick to the end.
+#
+# The pitch envelope comes from re-tracing each effect through the real BIOS
+# APU code and run-length-encoding the dominant voice's DSP pitch writes over
+# time (see debug/pitch_timeline.py for the standalone investigation tool).
+# One-shots get the full contour; loop-forever SFX-B ambiences keep a single
+# pitch. The sample SEQUENCE the player emits is unchanged by the envelope --
+# only the per-sample rate varies -- so the bit-exact ref streams below stay
+# valid; the envelope is verified separately in simulation.
 #
 # The tool also emits, under build/:
 #   sgb_sfx_bank.vh / .json   documentation + manifest
@@ -35,8 +51,8 @@
 #   trace.json                raw per-effect trace stats (reuse with --reuse)
 #
 # Fidelity scope (see plan / README): single dominant sample per effect,
-# fixed BIOS-recommended pitch per effect (no sweeps, no byte-3 attr pitch),
-# nearest-sample rate conversion (no Gaussian), BRR loop points and predictor
+# traced piecewise-constant pitch envelope (bank v5; no Gaussian, no ADSR,
+# no echo), nearest-sample rate conversion, BRR loop points and predictor
 # history carry taken from the ROM data.
 #
 # Usage:
@@ -116,10 +132,12 @@ def parse_samples(ram, recs):
 # driver trace: boot the real APU image, trigger each effect, watch the DSP
 # ---------------------------------------------------------------------------
 
-def run_snap(rig, ms, stats, audio):
+def run_snap(rig, ms, stats, audio, snap=None):
     """Like Rig.run_and_capture(full_vol=True) but also snapshots the DSP
     voices once per output sample (32 kHz) to accumulate per-SRCN energy and
-    pitch statistics."""
+    pitch statistics. If `snap` is a list, the per-sample list of audible
+    (srcn, pitch14, envelope) voices is appended too -- the time-ordered
+    record the pitch-envelope builder reduces into constant-pitch runs."""
     dsp, cpu = rig.dsp, rig.cpu
     target = cpu.cycles + int(ms * 1024)
     orig_w = dsp.write
@@ -135,6 +153,7 @@ def run_snap(rig, ms, stats, audio):
             cpu.step()
             if cpu.t2_div < before:   # wrapped => one DSP output sample
                 audio.append((dsp.out_l, dsp.out_r))
+                vs = []
                 for v in dsp.voices:
                     # audible contribution only (past the 5-sample KON delay)
                     if v.keyonDelay == 0 and v.envelope > 0:
@@ -148,6 +167,9 @@ def run_snap(rig, ms, stats, audio):
                         stats['ticks'][s] = stats['ticks'].get(s, 0) + 1
                         pe = stats['pitch'].setdefault(s, {})
                         pe[p] = pe.get(p, 0) + e
+                        vs.append((s, p, e))
+                if snap is not None:
+                    snap.append(vs)
     finally:
         dsp.write = orig_w
     if cpu.halted:
@@ -155,9 +177,11 @@ def run_snap(rig, ms, stats, audio):
 
 def trace_effect(rig, side, idx, pitch, max_s=8.0, tail_s=0.25):
     """Trigger one effect exactly like render.render_effect and return
-    (stats, audio)."""
+    (stats, audio, snap). `snap` is the time-ordered per-output-sample voice
+    list from the trigger onward (the pitch-envelope source)."""
     stats = {'energy': {}, 'ticks': {}, 'pitch': {}, 'noise': 0}
     audio = []
+    snap = []
     b1 = idx if side == 'A' else 0
     b2 = idx if side == 'B' else 0
     pa = pitch if side == 'A' else 0
@@ -167,13 +191,13 @@ def trace_effect(rig, side, idx, pitch, max_s=8.0, tail_s=0.25):
     rig.set_ports(b1=0, b2=0, b3=attr)
     run_snap(rig, 12, stats, audio)
     rig.set_ports(b1=b1, b2=b2, b3=attr)
-    run_snap(rig, 6, stats, audio)
+    run_snap(rig, 6, stats, audio, snap)
     silence_ms = 0; heard = False; total = 0
     cap = int(max_s * 1000)
     hit_cap = True                      # still sounding when the trace gave up
     while total < cap:
         n0 = len(audio)
-        run_snap(rig, 20, stats, audio)
+        run_snap(rig, 20, stats, audio, snap)
         peak = max((abs(l) + abs(r) for l, r in audio[n0:]), default=0)
         if peak > 256:
             heard = True; silence_ms = 0
@@ -188,8 +212,46 @@ def trace_effect(rig, side, idx, pitch, max_s=8.0, tail_s=0.25):
             break
     # stop packet (ends sustained SFX-B loops)
     rig.set_ports(b1=0x80 if b1 else 0, b2=0x80 if b2 else 0)
-    run_snap(rig, 30, stats, audio)
-    return stats, audio, hit_cap
+    run_snap(rig, 30, stats, audio, snap)
+    return stats, audio, hit_cap, snap
+
+def rle_runs(snap, dom):
+    """Run-length-encode the per-sample timeline of voice `dom` into
+    [[pitch, n32_samples, sum_envelope], ...]; samples where the voice is
+    silent split runs."""
+    runs = []
+    for vs in snap:
+        hit = next((t for t in vs if t[0] == dom), None)
+        if hit is not None:
+            p, e = hit[1], hit[2]
+            if runs and runs[-1][0] == p:
+                runs[-1][1] += 1
+                runs[-1][2] += e
+            else:
+                runs.append([p, 1, e])
+        elif runs:
+            runs.append([None, 1, 0])            # gap marker
+    return [r for r in runs if r[0] is not None]
+
+def reduce_runs(runs, min_n32=32):
+    """Size-friendly run reduction: absorb runs shorter than min_n32 (1 ms)
+    into the left neighbor, then merge adjacent runs whose pitches differ by
+    less than 1% (an inaudible step)."""
+    red = []
+    for r in runs:
+        if red and r[1] < min_n32:
+            red[-1][1] += r[1]
+            red[-1][2] += r[2]
+        else:
+            red.append(list(r))
+    out = []
+    for r in red:
+        if out and abs(r[0] - out[-1][0]) * 100 < max(r[0], out[-1][0], 1):
+            out[-1][1] += r[1]
+            out[-1][2] += r[2]
+        else:
+            out.append(list(r))
+    return out
 
 def trace_all(only=None, wavdir=None):
     rig = render.Rig()
@@ -204,7 +266,14 @@ def trace_all(only=None, wavdir=None):
             if only and key.lower() not in only:
                 continue
             cap = 5.0 if (side == 'B' and idx in render.B_LOOP) else 6.0
-            stats, audio, hit_cap = trace_effect(rig, side, idx, pitches[idx], max_s=cap)
+            stats, audio, hit_cap, snap = trace_effect(rig, side, idx,
+                                                       pitches[idx], max_s=cap)
+            # time-ordered pitch runs of the energy-dominant voice (the
+            # pitch-envelope source; see build_segments)
+            runs = []
+            if stats['energy']:
+                dom = max(stats['energy'], key=stats['energy'].get)
+                runs = reduce_runs(rle_runs(snap, dom))
             # JSON-serializable stats (dict keys -> str). The raw audio is not
             # kept; the trimmed audible duration is what classification needs.
             out[key] = {
@@ -217,6 +286,7 @@ def trace_all(only=None, wavdir=None):
                 'audio_samples': len(audio),
                 'duration_s': audible_duration(audio),
                 'hit_cap': hit_cap,
+                'runs': runs,
             }
             top = sorted(stats['energy'].items(), key=lambda kv: -kv[1])[:3]
             tops = ", ".join(f"SRCN ${s:02X}" for s, _ in top) or "silent"
@@ -233,6 +303,83 @@ def trace_all(only=None, wavdir=None):
 
 def heard_any(audio, thresh=256):
     return any(abs(l) + abs(r) > thresh for l, r in audio)
+
+# ---------------------------------------------------------------------------
+# pitch envelope: timeline runs -> bank v5 segment entries
+# ---------------------------------------------------------------------------
+#
+# The player is varispeed: with pitch P it emits one decoded sample every
+# tick = round(HCLK / (DSP_RATE*P/4096)) - 1 hClk cycles, i.e. at
+# R = DSP_RATE*P/4096 samples/s. A timeline run of n32 DSP-output samples at
+# pitch P lasts n32/DSP_RATE seconds, in which the player emits
+# M = n32 * P / 4096 samples -- so run i maps to
+#     blocks16_i = M_i / 16        (the record's 16-sample block granularity)
+#     tick_i     = round(HCLK / R_i) - 1
+# The segment table stores, per transition, the CURRENT segment's blocks16
+# and the NEXT segment's tick; the first segment's tick is the record's tick
+# field and the final segment has no entry (it holds its tick until the
+# effect's own end, so the envelope can never desync from the block stream).
+
+def build_segments(runs, total_blocks):
+    """Reduce timeline runs into v5 segment data spanning `total_blocks`
+    16-sample blocks. Returns (entries, segments, tick0):
+      entries  list of (blocks16, next_tick) bank entries ([] = no envelope)
+      segments full per-segment [(blocks16, tick)] list (documentation/checks)
+      tick0    the first segment's tick (None if runs are unusable)"""
+    # pitch<=0 = driver paused the voice: donate the time to the left run
+    cleaned = []
+    for P, n, e in runs:
+        if P <= 0:
+            if cleaned:
+                cleaned[-1][1] += n
+            continue
+        cleaned.append([P, n, e])
+    if not cleaned:
+        return [], [], None
+    conv = []
+    for P, n, e in cleaned:
+        blk_f = n * P / PITCH_1X / 16.0
+        tick = max(1, round(HCLK * PITCH_1X / (DSP_RATE * P)) - 1)
+        conv.append([blk_f, tick])
+    # sub-half-block dust (<8 emitted samples) merges left
+    merged = []
+    for blk_f, tick in conv:
+        if blk_f < 0.5:
+            if merged:
+                merged[-1][0] += blk_f
+            continue
+        merged.append([blk_f, tick])
+    if not merged:
+        return [], [], None
+    # block boundaries (clamped to total; the last run absorbs the remainder
+    # or whatever is left when the timeline over-runs the effect)
+    bounds, cum_f = [], 0.0
+    for blk_f, _ in merged:
+        cum_f += blk_f
+        bounds.append(min(total_blocks, int(round(cum_f))))
+    bounds[-1] = total_blocks
+    segs, prev = [], 0
+    for b, (_, tick) in zip(bounds, merged):
+        if b > prev:
+            segs.append([b - prev, tick])
+            prev = b
+    if prev < total_blocks:
+        segs.append([total_blocks - prev, merged[-1][1]])
+    if len(segs) < 2:
+        # everything collapsed to one pitch: no envelope, but report the pitch
+        return [], segs, segs[0][1] if segs else merged[0][1]
+    entries = [(blocks, segs[i + 1][1])
+               for i, (blocks, _) in enumerate(segs[:-1])]
+    return entries, segs, segs[0][1]
+
+def run_total_blocks(runs):
+    """The looped-one-shot duration implied by the timeline (in 16-sample
+    blocks): sum of n32*P/4096 over the runs."""
+    tot = 0.0
+    for P, n, e in runs:
+        if P > 0:
+            tot += n * P / PITCH_1X
+    return max(1, int(round(tot / 16.0)))
 
 # ---------------------------------------------------------------------------
 # classification -> per-effect records
@@ -261,11 +408,15 @@ def audible_duration(audio, thresh=256):
     return (last + 1) / DSP_RATE
 
 def classify(trace, samples, overrides):
-    """Build the 73 effect records. Returns (records, manifest) where records
-    is index-ordered (A01..A30, B01..B19) and each entry is
-    (brr_off, loop_off, tick, flags, count)."""
+    """Build the 73 effect records (record v5). Returns
+    (records, manifest, seg_entries) where records is index-ordered
+    (A01..A30, B01..B19), each entry is
+    (brr_off, loop_off, tick, blocks, flags, count, seg_off, seg_count)
+    with seg_off a placeholder assigned by emit(), and seg_entries[i] is the
+    effect's list of (blocks16, next_tick) segment-table entries."""
     records = []
     manifest = {}
+    seg_entries = []
     sets = [('A', render.A_NAMES, render.A_PITCH),
             ('B', render.B_NAMES, render.B_PITCH)]
     for side, names, pitches in sets:
@@ -275,6 +426,7 @@ def classify(trace, samples, overrides):
             rec = {'effect': key, 'name': names[idx], 'side': side,
                    'attr_pitch': pitches[idx]}
             brr_off = loop_off = tick = blocks = flags = count = None
+            entries, segs = [], []
             if tr and tr['energy']:
                 # dominant sample = largest envelope-energy share
                 srcn = max((int(k) for k in tr['energy']),
@@ -298,9 +450,10 @@ def classify(trace, samples, overrides):
                 # the B-loop-set heuristic.
                 sustained = tr.get('hit_cap',
                                    side == 'B' and idx in render.B_LOOP)
+                runs = tr.get('runs', [])
                 if smp is None:
                     rec['error'] = f"SRCN ${srcn:02X} has no directory entry"
-                elif P == 0:
+                elif P == 0 and not runs:
                     rec['error'] = f"traced pitch is 0 (SRCN ${srcn:02X})"
                 elif not smp['has_loop']:
                     flags, count = 0, 0             # natural BRR end flag stops it
@@ -309,13 +462,29 @@ def classify(trace, samples, overrides):
                 else:
                     flags = 1                       # looped sample, one-shot effect
                     # count in BLOCKS (16-sample units; <=0.5 ms granularity,
-                    # inaudible) so it fits the record's u16 field
-                    count = max(1, math.ceil(dur * R / 16))
+                    # inaudible) so it fits the record's u16 field. When a
+                    # pitch timeline exists it defines the duration exactly
+                    # (the old formula used the median rate).
+                    if runs:
+                        count = run_total_blocks(runs)
+                    else:
+                        count = max(1, math.ceil(dur * R / 16))
                 rec['sustained'] = bool(sustained)
                 if smp is not None and 'error' not in rec:
                     brr_off = smp['brr_off']
-                    loop_off = smp['loop_off'] if smp['loop_off'] is not None else 0xFFFFFFFF
+                    loop_off = smp['loop_off'] if smp['loop_off'] is not None else 0xFFFF
                     blocks = smp['blocks']          # first-pass blocks incl. terminal
+                # ---- pitch envelope (record v5) ----
+                # Loop-forever ambiences keep a single (median) pitch: their
+                # timelines are jitter around a drone and the envelope would
+                # have to be loop-aligned; one-shots get the full contour.
+                if runs and flags in (0, 1) and 'error' not in rec:
+                    total = run_total_blocks(runs) if flags == 1 else blocks
+                    entries, segs, tick0 = build_segments(runs, total)
+                    if entries and tick0:
+                        tick = tick0                # record tick = segment-0 tick
+                        if flags == 1:
+                            count = total           # envelope-spans duration
                 rec.update({'srcn': srcn, 'energy_share': round(share, 3),
                             'noise_share': round(tr['noise'] / tot, 3) if tot else 0.0,
                             'pitch': P, 'pitch_min': P0,
@@ -323,36 +492,45 @@ def classify(trace, samples, overrides):
                             'start_addr': smp['start'] if smp else None,
                             'loop_addr': smp['loop'] if smp else None,
                             'duration_s': round(dur, 3),
-                            'blocks': smp['blocks'] if smp else None})
+                            'blocks': smp['blocks'] if smp else None,
+                            'segments': segs})
             else:
                 rec['error'] = 'silent in trace'
-            # manual overrides (srcn re-pick / tick / count / flags)
+            # manual overrides (srcn re-pick / tick / count / flags / noseg)
             ov = overrides.get(key, {})
             if ov:
                 srcn = ov.get('srcn', rec.get('srcn'))
                 smp = samples.get(srcn) if srcn is not None else None
                 if smp is not None:
                     brr_off = smp['brr_off']
-                    loop_off = smp['loop_off'] if smp['loop_off'] is not None else 0xFFFFFFFF
+                    loop_off = smp['loop_off'] if smp['loop_off'] is not None else 0xFFFF
                     blocks = smp['blocks']
                     rec['srcn'] = srcn
                     rec['start_addr'] = smp['start']
                     rec['loop_addr'] = smp['loop']
                     rec['blocks'] = smp['blocks']
                     rec.pop('error', None)
-                if 'tick' in ov: tick = ov['tick']; rec['tick'] = tick
+                if 'tick' in ov:
+                    tick = ov['tick']; rec['tick'] = tick
+                    entries = []                    # manual tick = fixed pitch
                 if 'count' in ov: count = ov['count']
                 if 'flags' in ov: flags = ov['flags']
+                if ov.get('noseg'): entries = []
                 rec['overridden'] = sorted(ov)
             if brr_off is None:                     # invalid/silent effect
-                records.append((0xFFFFFFFF, 0xFFFFFFFF, 0, 0, 0, 0))
+                records.append((0xFFFF, 0xFFFF, 0, 0, 0, 0, 0, 0))
             else:
-                # record v4: (brr_off, loop_off, tick, blocks, flags, count)
-                records.append((brr_off, loop_off if loop_off is not None else 0xFFFFFFFF,
-                                tick or 0, blocks or 0, flags or 0, count or 0))
+                # record v5: 8 x u16 LE (brr_off, loop_off (0xFFFF=none),
+                # tick, blocks, flags, count, seg_off, seg_count)
+                records.append((brr_off,
+                                loop_off if loop_off is not None else 0xFFFF,
+                                tick or 0, blocks or 0, flags or 0, count or 0,
+                                0, len(entries)))
+            seg_entries.append(entries)
+            rec['seg_count'] = len(entries)
             rec['record'] = len(records) - 1
             manifest[key] = rec
-    return records, manifest
+    return records, manifest, seg_entries
 
 # ---------------------------------------------------------------------------
 # reference decode: the exact sample sequence the FPGA player must emit
@@ -403,35 +581,62 @@ def decode_stream(region, smp, flags, count):
 # bank assembly
 # ---------------------------------------------------------------------------
 
-def emit(records, manifest, region, outdir):
+def emit(records, manifest, region, seg_entries, outdir):
+    """Assemble the v5 bank: header, 73 x 16B records (8 x u16), verbatim BRR
+    region, then the pitch-envelope segment region (u16 blocks16 + u16
+    next_tick per entry). Record seg_off is an ENTRY index into the region."""
     os.makedirs(outdir, exist_ok=True)
+    seg_region = BRR_OFF + len(region)       # segment region right after BRR
+    total_entries = sum(len(e) for e in seg_entries)
+    assert total_entries * 4 + seg_region <= 0x10000, "bank exceeds u16 offsets"
     bank = bytearray()
-    bank += b'SFXB' + struct.pack('<HHII', 4, len(records), TABLE_OFF, BRR_OFF)
+    bank += b'SFXB' + struct.pack('<HHIII', 5, len(records),
+                                  TABLE_OFF, BRR_OFF, seg_region)
     bank += b'\x00' * (TABLE_OFF - len(bank))
-    for (brr_off, loop_off, tick, blocks, flags, count) in records:
-        bank += struct.pack('<IIHHHH', brr_off, loop_off, tick, blocks, flags, count)
+    entry_pos = 0
+    for i, rec in enumerate(records):
+        brr_off, loop_off, tick, blocks, flags, count = rec[:6]
+        assert len(seg_entries[i]) == rec[7]
+        assert 0 <= brr_off <= 0xFFFF and 0 <= loop_off <= 0xFFFF
+        bank += struct.pack('<HHHHHHHH', brr_off, loop_off, tick, blocks,
+                            flags, count, entry_pos, rec[7])
+        entry_pos += rec[7]
     bank += b'\x00' * (BRR_OFF - len(bank))
     bank += region
+    bank += b'\x00' * (seg_region - len(bank))
+    for entries in seg_entries:
+        for blocks16, next_tick in entries:
+            assert 1 <= blocks16 <= 0xFFFF and 1 <= next_tick <= 0xFFFF
+            bank += struct.pack('<HH', blocks16, next_tick)
     open(os.path.join(outdir, 'sgb_sfx_bank.bin'), 'wb').write(bytes(bank))
 
     # VH documentation header
-    vh = (f"// Auto-generated by extract_apu.py -- ROM-native SGB SFX bank.\n"
-          f"// APU sound image: sample directory + verbatim BRR from SGB1.sfc.\n"
+    vh = (f"// Auto-generated by extract_apu.py -- ROM-native SGB SFX bank (v5).\n"
+          f"// APU sound image: sample directory + verbatim BRR from SGB1.sfc,\n"
+          f"// plus per-effect pitch-envelope segments (bank v5).\n"
           f"// Layout: header@0x000, table@{TABLE_OFF:#x} (73 x 16B LE records:\n"
-          f"//   u32 brr_off, u32 loop_off (0xFFFFFFFF=none), u16 tick,\n"
-          f"//   u16 blocks (first-pass blocks incl. terminal), u16 flags\n"
+          f"//   u16 brr_off, u16 loop_off (0xFFFF=none), u16 tick (segment-0\n"
+          f"//   tick), u16 blocks (first-pass blocks incl. terminal), u16 flags\n"
           f"//   (bit0 loop-region valid, bit1 loop-forever), u16 count\n"
-          f"//   (total BLOCKS to emit; 0 = natural end / loop-forever)),\n"
-          f"//   BRR region@{BRR_OFF:#x} (offsets are into the region).\n"
+          f"//   (total BLOCKS to emit; 0 = natural end / loop-forever),\n"
+          f"//   u16 seg_off (entry index into the segment region),\n"
+          f"//   u16 seg_count (envelope entries; 0 = fixed pitch)),\n"
+          f"//   BRR region@{BRR_OFF:#x} (record offsets are into the region),\n"
+          f"//   segment region@{seg_region:#x}: seg_count x (u16 blocks16 of the\n"
+          f"//   current segment, u16 tick of the NEXT segment); the final\n"
+          f"//   segment has no entry and holds its tick to the effect's end.\n"
           f"`define SGB_SFX_COUNT {len(records)}\n"
           f"`define SGB_SFX_TABLE_OFF {TABLE_OFF}\n"
           f"`define SGB_SFX_BRR_OFF {BRR_OFF}\n"
+          f"`define SGB_SFX_SEG_OFF {seg_region}\n"
+          f"`define SGB_SFX_SEG_ENTRIES {total_entries}\n"
           f"`define SGB_SFX_BANK_BYTES {len(bank)}\n")
     for key in sorted(manifest, key=lambda k: manifest[k]['record']):
         m = manifest[key]
         r = records[m['record']]
         extra = m.get('error', f"SRCN ${m.get('srcn', 0):02X} P={m.get('pitch')} "
-                               f"tick={r[2]} blocks={r[3]} flags={r[4]} count={r[5]}")
+                               f"tick={r[2]} blocks={r[3]} flags={r[4]} "
+                               f"count={r[5]} segs={r[7]}")
         vh += f"// record {m['record']:2d}: {key} {m['name']:<20} {extra}\n"
     open(os.path.join(outdir, 'sgb_sfx_bank.vh'), 'w').write(vh)
 
@@ -452,7 +657,7 @@ def emit_refs(records, manifest, region, samples, outdir):
     for key in sorted(manifest, key=lambda k: manifest[k]['record']):
         m = manifest[key]
         rec = records[m['record']]
-        if rec[0] == 0xFFFFFFFF or m.get('error'):
+        if rec[0] == 0xFFFF or m.get('error'):
             continue
         smp = samples[m['srcn']]
         s = decode_stream(region, smp, rec[4], rec[5])
@@ -500,19 +705,41 @@ def norm_corr(a, b, max_lag):
                 best = c
     return best
 
+def synth_envelope(ref, segs):
+    """Time-domain reconstruction of the player's output: resample each
+    segment's slice of the reference stream at that segment's rate and
+    concatenate (32 kHz). For single-pitch effects this equals the plain
+    fixed-rate resample."""
+    out = []
+    pos = 0
+    for blocks16, tick in segs:
+        n = min(blocks16 * 16, len(ref) - pos)
+        if n <= 0:
+            break
+        R = HCLK / (tick + 1)
+        out += resample_lin([float(x) for x in ref[pos:pos + n]], R, DSP_RATE)
+        pos += n
+    # tail (if the ref is longer than the envelope span)
+    if pos < len(ref):
+        R = HCLK / (segs[-1][1] + 1)
+        out += resample_lin([float(x) for x in ref[pos:]], R, DSP_RATE)
+    return out
+
 def check_against_wav(records, manifest, region, samples, wavdir):
     """The rendered WAV is the DSP's Gaussian output at 32 kHz; the reference
     decode is the raw BRR sample stream at the effect rate. Resample both to
-    4 kHz and report the best-lag normalized correlation. Single-sample,
-    non-sweep effects should be ~1.0; multi-voice/sweep effects legitimately
-    score lower (logged, not failed)."""
+    4 kHz and report the best-lag normalized correlation. `fixed` uses one
+    rate for the whole effect (the v4 behavior); `env` reconstructs the v5
+    per-segment timing -- for pitch-modulated effects env is the meaningful
+    number. Single-sample, non-sweep effects should be ~1.0; multi-voice
+    effects legitimately score lower (logged, not failed)."""
     import wave as wavemod
-    print(f"\n{'fx':<5} {'corr':>6}  {'len':>6}  note")
+    print(f"\n{'fx':<5} {'fixed':>6} {'env':>6}  {'len':>6}  note")
     results = {}
     for key in sorted(manifest, key=lambda k: manifest[k]['record']):
         m = manifest[key]
         rec = records[m['record']]
-        if rec[0] == 0xFFFFFFFF or m.get('error'):
+        if rec[0] == 0xFFFF or m.get('error'):
             continue
         path = None
         for fn in os.listdir(wavdir):
@@ -531,14 +758,20 @@ def check_against_wav(records, manifest, region, samples, wavdir):
         R = HCLK / (rec[2] + 1)
         a = resample_lin([float(x) for x in ref], R, 4000)[:4000]
         b = resample_lin(mono, DSP_RATE, 4000)[:4000]
-        c = norm_corr(a, b, 800)
-        results[key] = round(c, 3)
+        c_fixed = norm_corr(a, b, 800)
+        segs = m.get('segments') or []
+        if len(segs) >= 2:
+            e = synth_envelope(ref, segs)
+            c_env = norm_corr(resample_lin(e, DSP_RATE, 4000)[:4000], b, 800)
+        else:
+            c_env = c_fixed
+        results[key] = {'fixed': round(c_fixed, 3), 'env': round(c_env, 3)}
         note = ''
         if m.get('energy_share', 1.0) < 0.85:
             note = 'multi-sample effect'
         elif m.get('noise_share', 0) > 0.05:
             note = 'noise component'
-        print(f"{key:<5} {c:6.3f}  {len(ref):6d}  {note}")
+        print(f"{key:<5} {c_fixed:6.3f} {c_env:6.3f}  {len(ref):6d}  {note}")
     return results
 
 # ---------------------------------------------------------------------------
@@ -594,14 +827,18 @@ def main():
         json.dump(slim, open(tpath, 'w'), indent=1)
         print(f"trace saved to {tpath}")
 
-    records, manifest = classify(trace, samples, overrides)
-    bank = emit(records, manifest, region, a.out)
+    records, manifest, seg_entries = classify(trace, samples, overrides)
+    bank = emit(records, manifest, region, seg_entries, a.out)
     refs = emit_refs(records, manifest, region, samples, a.out)
-    n_ok = sum(1 for r in records if r[0] != 0xFFFFFFFF)
+    n_ok = sum(1 for r in records if r[0] != 0xFFFF)
     n_loop = sum(1 for r in records if r[4] & 2)
+    n_env = sum(1 for r in records if r[7] > 0)
+    n_seg = sum(len(e) for e in seg_entries)
+    seg_region = BRR_OFF + len(region)
     print(f"\nbank: {len(bank)} bytes ({len(bank)/1024:.1f} KB) | "
           f"{n_ok}/{len(records)} effects mapped | {n_loop} loop-forever | "
-          f"region @{BRR_OFF:#x}")
+          f"{n_env} envelope effects / {n_seg} segments | "
+          f"BRR @{BRR_OFF:#x}, segments @{seg_region:#x}")
     errs = {k: m['error'] for k, m in manifest.items() if m.get('error')}
     if errs:
         print("UNMAPPED:")

@@ -1,8 +1,13 @@
 `timescale 1ns/1ps
 // tb_sfx_trig.v -- verify gb.v's CMD_SOUND -> sfx_start/index/stop trigger path.
-// This replicates (verbatim) the SFX trigger logic added to gb.v so it can be
+// This replicates (verbatim) the SFX trigger logic in gb.v so it can be
 // exercised without the whole GB SoC. It drives SOUND packets (byte_cnt 1..4)
 // exactly as the packet engine presents them and checks sfx_start/index/stop.
+//
+// Full 73-effect bank map (record v4 / sgb_sfx_play.v):
+//   SFX-A num 0x01..0x30 -> index num-1       (0..47)
+//   SFX-B num 0x01..0x19 -> index 47+num      (48..72)
+//   B valid beats A; bit 7 of the aimed byte stops the playing channel.
 module tb_sfx_trig;
 
     reg clk = 0;
@@ -16,42 +21,18 @@ module tb_sfx_trig;
 
     reg       sfx_start_r = 1'b0;
     reg       sfx_stop_r  = 1'b0;
-    reg [2:0] sfx_index_r = 3'd0;
+    reg [6:0] sfx_index_r = 7'd0;
     reg       sfx_is_b    = 1'b0;
     reg [7:0] sfx_a_num   = 8'd0;
     reg [7:0] sfx_b_num   = 8'd0;
     wire      sfx_start = sfx_start_r;
     wire      sfx_stop  = sfx_stop_r;
-    wire [2:0] sfx_index = sfx_index_r;
+    wire [6:0] sfx_index = sfx_index_r;
 
-    function [3:0] sfx_map_a;
-        input [6:0] num;
-        begin
-            case (num)
-                7'h1F:   sfx_map_a = 4'b1_000;
-                7'h26:   sfx_map_a = 4'b1_001;
-                7'h30:   sfx_map_a = 4'b1_010;
-                default: sfx_map_a = 4'b0_000;
-            endcase
-        end
-    endfunction
-    function [3:0] sfx_map_b;
-        input [6:0] num;
-        begin
-            case (num)
-                7'h01:   sfx_map_b = 4'b1_011;
-                7'h04:   sfx_map_b = 4'b1_100;
-                7'h07:   sfx_map_b = 4'b1_101;
-                7'h08:   sfx_map_b = 4'b1_110;
-                7'h0B:   sfx_map_b = 4'b1_111;
-                default: sfx_map_b = 4'b0_000;
-            endcase
-        end
-    endfunction
-    wire [3:0] sfx_hit_a  = sfx_map_a(sfx_a_num[6:0]);
-    wire [3:0] sfx_hit_b  = sfx_map_b(sfx_b_num[6:0]);
-    wire       sfx_do_stop = (sfx_a_num[7] && !sfx_is_b) ||
-                             (sfx_b_num[7] &&  sfx_is_b);
+    wire [6:0] sfx_a_idx  = sfx_a_num[6:0] - 7'd1;
+    wire       sfx_hit_a  = (sfx_a_num[6:0] >= 7'h01) && (sfx_a_num[6:0] <= 7'h30);
+    wire [6:0] sfx_b_idx  = 7'd47 + sfx_b_num[6:0];
+    wire       sfx_hit_b  = (sfx_b_num[6:0] >= 7'h01) && (sfx_b_num[6:0] <= 7'h19);
 
     // ---- replicated CMD_SOUND handling, clocked like gb.v's packet engine ----
     reg reset_ss = 0;
@@ -78,13 +59,13 @@ module tb_sfx_trig;
                         if ((sfx_a_num[7] && !sfx_is_b) ||
                             (sfx_b_num[7] &&  sfx_is_b)) begin
                             sfx_stop_r  <= 1'b1;
-                        end else if (!sfx_b_num[7] && sfx_hit_b[3]) begin
+                        end else if (!sfx_b_num[7] && sfx_hit_b) begin
                             sfx_start_r <= 1'b1;
-                            sfx_index_r <= sfx_hit_b[2:0];
+                            sfx_index_r <= sfx_b_idx;
                             sfx_is_b    <= 1'b1;
-                        end else if (!sfx_a_num[7] && sfx_hit_a[3]) begin
+                        end else if (!sfx_a_num[7] && sfx_hit_a) begin
                             sfx_start_r <= 1'b1;
-                            sfx_index_r <= sfx_hit_a[2:0];
+                            sfx_index_r <= sfx_a_idx;
                             sfx_is_b    <= 1'b0;
                         end
                     end
@@ -112,8 +93,13 @@ module tb_sfx_trig;
     endtask
 
     integer fails = 0;
+
+    // capture the stop pulse across the reset window
+    reg saw_stop = 0;
+    always @(posedge clk) if (sfx_stop) saw_stop <= 1;
+
     task check;
-        input [2:0] exp_idx;
+        input [6:0] exp_idx;
         input       exp_start;
         input       exp_stop;
         begin
@@ -121,47 +107,73 @@ module tb_sfx_trig;
             if (sfx_start !== exp_start || sfx_stop !== exp_stop ||
                 (exp_start && sfx_index !== exp_idx)) begin
                 fails = fails + 1;
-                $display("  FAIL got start=%b stop=%b idx=%d  want start=%b stop=%b idx=%d",
+                $display("  FAIL got start=%b stop=%b idx=%0d  want start=%b stop=%b idx=%0d",
                          sfx_start, sfx_stop, sfx_index, exp_start, exp_stop, exp_idx);
             end else begin
-                $display("  ok   start=%b stop=%b idx=%d", sfx_start, sfx_stop, sfx_index);
+                $display("  ok   start=%b stop=%b idx=%0d", sfx_start, sfx_stop, sfx_index);
             end
         end
     endtask
 
-    // capture the pulse on the cycle after the final byte_done
-    reg saw_start, saw_stop; reg [2:0] cap_idx;
-    always @(posedge clk) begin
-        if (sfx_start) begin saw_start<=1; cap_idx<=sfx_index; end
-        if (sfx_stop)  saw_stop<=1;
-    end
+    task check_is_b;
+        input exp;
+        begin
+            if (sfx_is_b !== exp) begin
+                fails = fails + 1;
+                $display("  FAIL sfx_is_b=%b want %b", sfx_is_b, exp);
+            end
+        end
+    endtask
 
     initial begin
-        // SFX-A triggers -> indices 0..2
-        send_sound(8'h1F, 8'h00, 8'h00); @(posedge clk); check(3'd0,1,0);
-        send_sound(8'h26, 8'h00, 8'h00); @(posedge clk); check(3'd1,1,0);
-        send_sound(8'h30, 8'h00, 8'h00); @(posedge clk); check(3'd2,1,0);
-        // SFX-B triggers -> indices 3..7
-        send_sound(8'h00, 8'h01, 8'h00); @(posedge clk); check(3'd3,1,0);
-        send_sound(8'h00, 8'h04, 8'h00); @(posedge clk); check(3'd4,1,0);
-        send_sound(8'h00, 8'h07, 8'h00); @(posedge clk); check(3'd5,1,0);
-        send_sound(8'h00, 8'h08, 8'h00); @(posedge clk); check(3'd6,1,0);
-        send_sound(8'h00, 8'h0B, 8'h00); @(posedge clk); check(3'd7,1,0);
-        // unmapped numbers -> no trigger (incl. removed A0C)
-        send_sound(8'h0C, 8'h02, 8'h00); @(posedge clk); check(3'd0,0,0);
-        // stop: A playing (is_b=0), stop-A bit set
-        send_sound(8'h1F, 8'h00, 8'h00); @(posedge clk);        // start A
-        send_sound(8'h80, 8'h00, 8'h00); @(posedge clk); check(3'd0,0,1);
-        // start a B (is_b=1), then stop-B via 0x80|number
-        send_sound(8'h00, 8'h04, 8'h00); @(posedge clk);        // start B (is_b=1)
-        send_sound(8'h00, 8'h84, 8'h00); @(posedge clk); check(3'd0,0,1);
-        // stop-A while B playing -> should NOT stop (is_b=1)
-        send_sound(8'h00, 8'h04, 8'h00); @(posedge clk);        // start B
-        send_sound(8'h80, 8'h00, 8'h00); @(posedge clk); check(3'd0,0,0);
+        $display("== SFX-A range: num-1 -> index 0..47 ==");
+        send_sound(8'h00, 8'h00, 8'h00); @(posedge clk); check(7'd0,0,0);  // 0 = none
+        send_sound(8'h01, 8'h00, 8'h00); @(posedge clk); check(7'd0,1,0);  // low edge
+        check_is_b(0);
+        send_sound(8'h1F, 8'h00, 8'h00); @(posedge clk); check(7'd30,1,0); // KDL2 SwordSwing
+        send_sound(8'h26, 8'h00, 8'h00); @(posedge clk); check(7'd37,1,0);
+        send_sound(8'h30, 8'h00, 8'h00); @(posedge clk); check(7'd47,1,0); // high edge
+        send_sound(8'h31, 8'h00, 8'h00); @(posedge clk); check(7'd0,0,0);  // out of range
+        send_sound(8'h40, 8'h00, 8'h00); @(posedge clk); check(7'd0,0,0);
 
-        // ---- core reset must stop the SFX engine (Everdrive menu exit) ----
+        $display("== SFX-B range: 47+num -> index 48..72 ==");
+        send_sound(8'h00, 8'h01, 8'h00); @(posedge clk); check(7'd48,1,0); // low edge
+        check_is_b(1);
+        send_sound(8'h00, 8'h0B, 8'h00); @(posedge clk); check(7'd58,1,0); // B0B Wave
+        send_sound(8'h00, 8'h19, 8'h00); @(posedge clk); check(7'd72,1,0); // high edge
+        send_sound(8'h00, 8'h1A, 8'h00); @(posedge clk); check(7'd0,0,0);  // out of range
+        send_sound(8'h00, 8'h20, 8'h00); @(posedge clk); check(7'd0,0,0);
+
+        $display("== priority: valid B beats valid A; A fallback when B invalid ==");
+        send_sound(8'h05, 8'h02, 8'h00); @(posedge clk); check(7'd49,1,0);
+        check_is_b(1);
+        send_sound(8'h05, 8'h00, 8'h00); @(posedge clk); check(7'd4,1,0);
+        check_is_b(0);
+
+        $display("== stop semantics (bit 7, aimed via sfx_is_b) ==");
+        // A playing (is_b=0): stop-A via 0x80 in byte1
+        send_sound(8'h02, 8'h00, 8'h00); @(posedge clk); check(7'd1,1,0);   // start A02
+        send_sound(8'h80, 8'h00, 8'h00); @(posedge clk); check(7'd0,0,1);
+        // B playing (is_b=1): stop-B via bit7 in byte2
+        send_sound(8'h00, 8'h04, 8'h00); @(posedge clk); check(7'd51,1,0);  // start B04
+        check_is_b(1);
+        send_sound(8'h00, 8'h84, 8'h00); @(posedge clk); check(7'd0,0,1);
+        // B playing: stop-A (byte1 bit7) must NOT stop (wrong channel)...
+        send_sound(8'h00, 8'h04, 8'h00); @(posedge clk); check(7'd51,1,0);
+        send_sound(8'h80, 8'h00, 8'h00); @(posedge clk); check(7'd0,0,0);
+        // ...and a stop byte must never itself restart playback
+        check_is_b(1);
+        // A playing: stop-B (byte2 bit7) must NOT stop either
+        send_sound(8'h03, 8'h00, 8'h00); @(posedge clk); check(7'd2,1,0);   // start A03 (is_b=0)
+        send_sound(8'h00, 8'h80, 8'h00); @(posedge clk); check(7'd0,0,0);
+        check_is_b(0);
+        // stop takes precedence even when the other byte carries a valid number
+        send_sound(8'h06, 8'h00, 8'h00); @(posedge clk); check(7'd5,1,0);   // start A06
+        send_sound(8'h80, 8'h05, 8'h00); @(posedge clk); check(7'd0,0,1);   // stop beats B05
+
+        $display("== core reset must stop the SFX engine (Everdrive menu exit) ==");
         // start a looping SFX-B (B0B Wave), then assert the core reset
-        send_sound(8'h00, 8'h0B, 8'h00); @(posedge clk); check(3'd7,1,0);
+        send_sound(8'h00, 8'h0B, 8'h00); @(posedge clk); check(7'd58,1,0);
         saw_stop = 0;
         reset_ss = 1;
         repeat (5) @(posedge clk);
@@ -173,6 +185,10 @@ module tb_sfx_trig;
             fails = fails + 1;
             $display("  FAIL reset did not clear sfx_is_b");
         end else $display("  ok   reset cleared sfx_is_b");
+        if (sfx_a_num !== 8'd0 || sfx_b_num !== 8'd0) begin
+            fails = fails + 1;
+            $display("  FAIL reset did not clear latched SOUND numbers");
+        end else $display("  ok   reset cleared latched SOUND numbers");
         // deassert: the default clears re-arm sfx_stop on the first ce
         reset_ss = 0;
         @(posedge clk); #1;
@@ -180,11 +196,13 @@ module tb_sfx_trig;
             fails = fails + 1;
             $display("  FAIL sfx_stop not re-armed after reset");
         end else $display("  ok   sfx_stop re-armed after reset");
-        // a new game after reset can still trigger effects
-        send_sound(8'h1F, 8'h00, 8'h00); @(posedge clk); check(3'd0,1,0);
+        // a new game after reset can still trigger effects (both sides)
+        send_sound(8'h1F, 8'h00, 8'h00); @(posedge clk); check(7'd30,1,0);
+        send_sound(8'h00, 8'h19, 8'h00); @(posedge clk); check(7'd72,1,0);
 
         if (fails) $display("RESULT: FAIL (%0d)", fails);
         else       $display("RESULT: PASS");
         $finish;
     end
+
 endmodule

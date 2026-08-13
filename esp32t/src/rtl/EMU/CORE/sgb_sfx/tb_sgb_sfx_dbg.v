@@ -19,7 +19,7 @@
 // alignment, pad-skip, loop-jump, predictor-history or decode bug breaks
 // this. Envelope timing itself is covered by tb_sgb_sfx_env.v at real ticks.
 `timescale 1ns/1ps
-module tb_sgb_sfx_play;
+module tb_sgb_sfx_dbg;
 
     localparam [22:0] BANK_BASE = 23'h100000;
     localparam BANK_WORDS = 23788;        // 47576 bytes / 2 (bank v5)
@@ -343,6 +343,34 @@ module tb_sgb_sfx_play;
         hb = hb + 1;
         if (hb % 5000000 == 0)
             $display("hb: xClk=%0d simtime=%t fx=%0d ncap=%0d", hb, $time, cur_idx, ncap);
+    end
+
+    // stall monitor: dump the DUT when nothing moves for 200k xClk mid-test
+    integer last_ncap = 0, prog_cycle = 0, dumped = 0;
+    reg [3:0] last_st = 0; reg [9:0] last_wbin = 0; reg last_hp = 0;
+    always @(posedge xClk) begin
+        if (ncap !== last_ncap || dut.st !== last_st ||
+            dut.wbin !== last_wbin || hPlaying !== last_hp) begin
+            prog_cycle = hb; dumped = 0;
+        end
+        last_ncap = ncap; last_st = dut.st; last_wbin = dut.wbin; last_hp = hPlaying;
+        if (cap_en && !dumped && hb - prog_cycle > 200000) begin
+            dumped = 1;
+            $display("STALL at hb=%0d fx=%0d ncap=%0d", hb, cur_idx, ncap);
+            $display("  st=%0d req=%b cmdp=%b pplay=%b sdone=%b ack=%0d acklast=%0d cmdseq=%0d",
+                     dut.st, dut.req_out, dut.cmd_pend, dut.pend_play,
+                     dut.seg_done, dut.ack_seq, dut.ack_last, dut.cmd_seq);
+            $display("  run=%b flush=%b ninit=%b play=%b wbin=%0d rbin=%0d wbin_h=%0d rbin_x=%0d",
+                     dut.run_state, dut.flush_active, dut.need_init, hPlaying,
+                     dut.wbin, dut.rbin, dut.wbin_h, dut.rbin_x);
+            $display("  segst=%0d segon=%b segblk=%0d segleft=%0d hsegcnt=%0d htick=%0d tickcnt=%0d",
+                     dut.seg_st, dut.seg_on, dut.seg_blk, dut.seg_left,
+                     dut.h_seg_cnt, dut.h_tick, dut.tick_cnt);
+            $display("  dstate=%0d nib=%0d haveb=%b sbv=%b wbufv=%b rdp=%b segrem=%0d skip=%0d blkrem=%0d words_avail=%b",
+                     dut.dstate, dut.nib_i, dut.have_dbyte, dut.sb_v,
+                     dut.wbuf_v, dut.rd_pend, dut.seg_rem, dut.skip_cnt,
+                     dut.blk_rem, dut.words_avail);
+        end
     end
 
     initial begin
