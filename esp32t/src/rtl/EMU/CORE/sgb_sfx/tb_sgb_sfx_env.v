@@ -20,7 +20,7 @@
 //   vvp /tmp/tb_env.out
 module tb_sgb_sfx_env;
     localparam [22:0] BANK_BASE = 23'h100000;
-    localparam BANK_WORDS = 31867;        // 63734 bytes / 2 (bank v6.1)
+    localparam BANK_WORDS = 31942;        // 63884 bytes / 2 (bank v6.2)
     localparam SEG_WBASE  = 25768;        // segment region word base (0xC950/2)
     localparam MAXS       = 120000;
 

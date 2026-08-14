@@ -500,7 +500,7 @@ def classify(trace, samples, overrides, region, amp_step=2):
                 # and B10 WarningSound uses SRCN 7's NATURAL loop (blocks
                 # 7-10 = the 830 Hz tone; a full-track loop grinds at 300 Hz,
                 # the "brrrr" heard on hardware).
-                FORCE_FULL_LOOP = {'B19'}
+                FORCE_FULL_LOOP = {'B18', 'B19'}
                 is_force = (key in FORCE_FULL_LOOP)
                 sustained = tr.get('hit_cap',
                                    side == 'B' and idx in render.B_LOOP)

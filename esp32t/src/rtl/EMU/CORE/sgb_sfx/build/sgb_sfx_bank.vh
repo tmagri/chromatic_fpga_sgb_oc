@@ -19,8 +19,8 @@
 `define SGB_SFX_TABLE_OFF 256
 `define SGB_SFX_BRR_OFF 2048
 `define SGB_SFX_SEG_OFF 51536
-`define SGB_SFX_SEG_ENTRIES 2033
-`define SGB_SFX_BANK_BYTES 63734
+`define SGB_SFX_SEG_ENTRIES 2058
+`define SGB_SFX_BANK_BYTES 63884
 // record  0: A01 Nintendo             SRCN $01 P=15272 tick=187 blocks=11 flags=1 count=6753 segs=36
 // record  1: A02 GameOver             SRCN $3E P=1639 tick=153 blocks=109 flags=1 count=1002 segs=90
 // record  2: A03 Drop                 SRCN $00 P=7488 tick=198 blocks=11 flags=1 count=4416 segs=122
@@ -84,7 +84,7 @@
 // record 60: B0D Waterfall            SRCN $3D P=800 tick=2683 blocks=506 flags=65283 count=0 segs=0
 // record 61: B0E SmallCharRunning     SRCN $38 P=5400 tick=6000 blocks=230 flags=65283 count=0 segs=0
 // record 62: B0F HorseRunning         SRCN $31 P=10903 tick=523 blocks=912 flags=65283 count=0 segs=0
-// record 63: B10 WarningSound         SRCN $07 P=6804 tick=315 blocks=11 flags=1 count=1260 segs=12
+// record 63: B10 WarningSound         SRCN $07 P=6804 tick=315 blocks=11 flags=7 count=0 segs=19
 // record 64: B11 ApproachingCar       SRCN $39 P=2140 tick=1002 blocks=105 flags=65283 count=0 segs=0
 // record 65: B12 JetFlying            SRCN $38 P=298 tick=7205 blocks=230 flags=65283 count=0 segs=0
 // record 66: B13 UfoFlying            SRCN $3E P=1158 tick=1853 blocks=109 flags=65283 count=0 segs=0
@@ -92,5 +92,5 @@
 // record 68: B15 ScoreUp              SRCN $38 P=3606 tick=6000 blocks=230 flags=65283 count=0 segs=0
 // record 69: B16 FireB                SRCN $3C P=8088 tick=8000 blocks=500 flags=0 count=0 segs=3
 // record 70: B17 CameraShutter        SRCN $37 P=9237 tick=333 blocks=699 flags=1 count=546 segs=25
-// record 71: B18 WriteFormanto        SRCN $31 P=3057 tick=744 blocks=62 flags=0 count=0 segs=1
+// record 71: B18 WriteFormanto        SRCN $31 P=3057 tick=701 blocks=62 flags=7 count=0 segs=19
 // record 72: B19 ShowUpTitle          SRCN $3E P=546 tick=3932 blocks=109 flags=65283 count=0 segs=0

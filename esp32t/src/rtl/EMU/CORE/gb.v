@@ -1175,7 +1175,7 @@ wire signed [15:0] sgb_pcm_att = isSGB ? ($signed(sgb_pcm) >>> SGB_PCM_SHIFT) : 
 // needed beyond isSGB. These are meant to sit in the background as subtle ambience,
 // so attenuate well below the custom BRR (shift 6 = /64 = -36dB). Tune to taste:
 // each +1 halves the volume (5 = /32, 6 = /64, 7 = /128).
-localparam [2:0] SFX_PCM_SHIFT = 3'd6;
+localparam [2:0] SFX_PCM_SHIFT = 3'd7;
 wire signed [15:0] sfx_pcm_att = isSGB ? ($signed(sfx_pcm) >>> SFX_PCM_SHIFT) : 16'd0;
 
 wire [17:0] mix_l = {{2{apu_l[15]}}, apu_l}

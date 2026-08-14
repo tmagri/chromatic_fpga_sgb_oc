@@ -5,5 +5,7 @@
     "B15": {"srcn": 56, "tick": 6000},
     "B06": {"env_loop": true},
     "B0F": {"srcn": 49, "tick": 523, "gallop_ms": [221, 124, 111]},
-    "B0B": {"srcn": 61, "repeat_env": true, "repeat_gap_ms": 700}
+    "B0B": {"srcn": 61, "repeat_env": true, "repeat_gap_ms": 300},
+    "B10": {"repeat_env": true, "repeat_gap_ms": 0},
+    "B18": {"repeat_env": true, "repeat_gap_ms": 0}
 }

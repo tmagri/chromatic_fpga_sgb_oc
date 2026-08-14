@@ -22,7 +22,7 @@
 //   vvp /tmp/tb_hang.out
 module tb_sgb_sfx_hang;
     localparam [22:0] BANK_BASE = 23'h100000;
-    localparam BANK_WORDS = 31867;        // 63734 bytes / 2 (bank v6.1)
+    localparam BANK_WORDS = 31942;        // 63884 bytes / 2 (bank v6.2)
     localparam SEG_WBASE  = 25768;        // segment region word base (0xC950/2)
     localparam ITERS      = 200;
 
