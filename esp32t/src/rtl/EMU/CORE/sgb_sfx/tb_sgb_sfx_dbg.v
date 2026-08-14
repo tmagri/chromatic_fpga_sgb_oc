@@ -22,8 +22,8 @@
 module tb_sgb_sfx_dbg;
 
     localparam [22:0] BANK_BASE = 23'h100000;
-    localparam BANK_WORDS = 23788;        // 47576 bytes / 2 (bank v5)
-    localparam SEG_WBASE  = 21664;        // segment region word base (0xA940/2)
+    localparam BANK_WORDS = 31867;        // 63734 bytes / 2 (bank v6.1)
+    localparam SEG_WBASE  = 25768;        // segment region word base (0xC950/2)
     localparam MAXS       = 320000;       // biggest effect = A2D 19553*16 = 312848
 
     reg xClk = 0, hClk = 0;
@@ -62,13 +62,13 @@ module tb_sgb_sfx_dbg;
     integer w;
     initial begin
         $readmemh("sgb_sfx/build/sim_bank.hex", psram);
-        // sim-speed patch: tick (record word 2 in v5) -> 3 for every effect,
-        // and every segment entry's next-tick word -> 3. This only changes
-        // the emit pacing; sample values are untouched, so the bit-exact
-        // comparison against ref_XXX.hex remains valid (the envelope
-        // sequencer still steps its real block boundaries).
+        // sim-speed patch: tick (record word 2) -> 3 for every effect, and
+        // every segment entry's next-tick word -> 3 (bank v6: entries are
+        // 3 words = blocks16, next_tick, next_amp; the tick is word +1).
+        // This only changes the emit pacing; sample values are untouched, so
+        // the bit-exact comparison against ref_XXX.hex remains valid.
         for (i = 0; i < 73; i = i + 1) psram[128 + i*8 + 2] = 16'd3;
-        for (w = SEG_WBASE + 1; w < BANK_WORDS; w = w + 2) psram[w] = 16'd3;
+        for (w = SEG_WBASE + 1; w < BANK_WORDS; w = w + 3) psram[w] = 16'd3;
     end
 
     function [15:0] rd_word;

@@ -27,9 +27,9 @@ ALIGN = 16
 # Sustained-loop SFX-B effects whose rendered capture holds only one pass
 # (the renderer stops at the first 250 ms quiet gap), so detect_loop() cannot
 # find a repeat region. The real SGB BIOS keeps these going until a SOUND
-# stop packet (e.g. B0B Wave on the KDL2 World 3 map): force a full-track
+# stop packet (e.g. B0F HorseRunning): force a full-track
 # loop (loop point at byte 0).
-FORCE_FULL_LOOP = {'b0b', 'b10', 'b19'}
+FORCE_FULL_LOOP = {'b0f', 'b10', 'b19'}
 
 def main():
     ap = argparse.ArgumentParser()

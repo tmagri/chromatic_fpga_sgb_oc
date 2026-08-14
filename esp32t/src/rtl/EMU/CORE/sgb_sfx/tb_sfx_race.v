@@ -17,8 +17,8 @@
 //   vvp /tmp/tb_race.out
 module tb_sfx_race;
     localparam [22:0] BANK_BASE = 23'h100000;
-    localparam BANK_WORDS = 23788;        // 47576 bytes / 2 (bank v5)
-    localparam SEG_WBASE  = 21664;        // segment region word base (0xA940/2)
+    localparam BANK_WORDS = 31867;        // 63734 bytes / 2 (bank v6.1)
+    localparam SEG_WBASE  = 25768;        // segment region word base (0xC950/2)
 
     reg xClk = 0, hClk = 0;
     always #6.667  xClk = ~xClk;
@@ -47,9 +47,10 @@ module tb_sfx_race;
     integer i, w;
     initial begin
         $readmemh("sgb_sfx/build/sim_bank.hex", psram);
-        // v5: tick is record word 2; also patch every seg-entry next-tick word
+        // tick is record word 2; also patch every seg-entry next-tick word
+        // (bank v6: entries are 3 words = blocks16, next_tick, next_amp)
         for (i = 0; i < 73; i = i + 1) psram[128 + i*8 + 2] = 16'd3;
-        for (w = SEG_WBASE + 1; w < BANK_WORDS; w = w + 2) psram[w] = 16'd3;
+        for (w = SEG_WBASE + 1; w < BANK_WORDS; w = w + 3) psram[w] = 16'd3;
     end
 
     function [15:0] rd_word; input [22:0] a; integer w;

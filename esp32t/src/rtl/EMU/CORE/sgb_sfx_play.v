@@ -16,25 +16,35 @@
 //           one sample per per-effect tick on hPcm/hPcmValid/hPlaying.
 //
 // BANK LAYOUT (loaded at BANK_BASE in PSRAM, built by sgb_sfx/extract_apu.py):
-//   +0x000   header  'SFXB', version(5), count, table_off, brr_off, seg_off
+//   +0x000   header  'SFXB', version(6), count, table_off, brr_off, seg_off
 //   +0x100   table   73 x 16-byte LE records (8 x u16)
-//   +0x800   brr     VERBATIM copy of the ROM's $4DB0 BRR record (41,280 B)
-//   +0xA940  segs    pitch-envelope segment table (= brr_off + 41280)
+//   +0x800   brr     VERBATIM copy of the ROM's $4DB0 BRR record (41,280 B),
+//                    followed by constructed extension blocks (bank v6, e.g.
+//                    the B0F horse gallop cycle -- record offsets reach them)
+//   +0xC950  segs    tick+amp envelope segment table (= brr_off + 41280 + 8208)
 // Record (16 B, little-endian, 8 x u16):
 //   u16 brr_off    byte offset of the sample's first BRR block (multiple of 9)
 //   u16 loop_off   byte offset of loop start; 0xFFFF = no loop
 //   u16 tick       segment-0 hClk divider reload = round(16777216/R_eff)-1
 //   u16 blocks     number of first-pass BRR blocks (incl. the terminal block)
-//   u16 flags      bit0 = loop region valid; bit1 = loop forever (until stop)
+//   u16 flags      bit0 = loop region valid; bit1 = loop forever (until stop);
+//                  bit2 = env-loop (bank v6.1): the envelope restarts from
+//                  entry 0 after the final segment (its last entry is a
+//                  wrap-around entry whose next tick/amp are segment 0's, so
+//                  the normal boundary reload re-arms the cycle); only valid
+//                  together with bit1; bits 15:8 = initial amplitude 0..255
 //   u16 count      total BLOCKS to emit; used when flags.bit0 & ~flags.bit1
 //   u16 seg_off    entry index of this effect in the segment table
-//   u16 seg_count  envelope entries; 0 = fixed pitch (single segment)
-// Segment entry (4 B): u16 blocks16 = length of the CURRENT segment in
-// 16-sample blocks, u16 tick = divider reload of the NEXT segment. Entry e
-// carries segment e's length and segment e+1's tick; the first segment's
-// tick is the record's tick field and the final segment has no entry (it
-// holds its tick until the effect ends), so the envelope can never desync
-// from the block stream.
+//   u16 seg_count  envelope entries; 0 = constant segment-0 tick/amp
+// Segment entry (6 B): u16 blocks16 = length of the CURRENT segment in
+// 16-sample blocks, u16 tick = divider reload of the NEXT segment, u16 amp
+// (0..255) = amplitude of the NEXT segment. Entry e carries segment e's
+// length and segment e+1's tick+amp; the first segment's tick is the
+// record's tick field and its amp is flags[15:8], and the final segment has
+// no entry (it holds its tick/amp until the effect ends), so the envelope
+// can never desync from the block stream. Amplitude scales the OUTPUT only:
+// hPcm = (decoded BRR sample * amp) >>> 8; the predictor history stays in
+// the unscaled BRR domain.
 //
 // PLAYBACK MODEL (the "closest enough" HLE contract):
 //   * Writer streams [brr_off..end-of-sample] (blocks*9 bytes), then, if the
@@ -44,15 +54,19 @@
 //     stops after `count` blocks and the writer self-throttles (the FIFO
 //     fills, `space` drops below the burst threshold, and it simply stops
 //     issuing reads until the next command aborts it).
-//   * Pitch envelope (bank v5): when seg_count > 0 the writer fetches the
-//     effect's seg_count entries into a small dual-port segment store BEFORE
-//     the echo; the reader steps one segment per seg_blk-count block
-//     boundaries, reloading the tick divider at each. The envelope only
-//     changes the emission RATE -- the emitted sample sequence is identical
-//     to the fixed-pitch case. Retriggering overwrites the segment store
-//     while the interrupted effect may still be reading it; the resulting
-//     sub-100 us glitch on the dying effect is inaudible (it restarts on
-//     the echo).
+//   * Envelopes (bank v6): when seg_count > 0 the writer fetches the
+//     effect's seg_count entries (3 words each) into a small dual-port
+//     segment store BEFORE the echo; the reader steps one segment per
+//     seg_blk-count block boundaries, reloading the tick divider and the
+//     output amplitude at each. The envelopes only change the emission RATE
+//     and OUTPUT SCALE -- the decoded sample sequence is identical to the
+//     fixed case. With flags.bit2 (env-loop, bank v6.1) the entry sequencer
+//     re-arms from entry 0 when the final segment completes, so the envelope
+//     cycles forever over the looping BRR stream (e.g. the wave swell with
+//     its silent break, the storm thunder's pitch sweep).
+//     Retriggering overwrites the segment store while the
+//     interrupted effect may still be reading it; the resulting sub-100 us
+//     glitch on the dying effect is inaudible (it restarts on the echo).
 //   * BRR block offsets are multiples of 9, so they alternate odd/even. The
 //     writer always fetches from an even-aligned base {base[22:1],1'b0}; the
 //     reader skips the base[0] leading pad byte at the start of each segment
@@ -113,8 +127,10 @@ module sgb_sfx_play #(
     localparam FW = 9;                 // FIFO: 512 words x 16 bit (1 BSRAM)
     localparam [22:0] TABLE_OFF = 23'h100;
     localparam [22:0] BRR_OFF   = 23'h800;
-    localparam [22:0] SEG_OFF   = 23'hA940;  // = BRR_OFF + 41280 (bank v5)
-    localparam SW = 10;                // segment store: 1024 x 16 (2 BSRAM)
+    localparam [22:0] SEG_OFF   = 23'hC950;  // = BRR_OFF + 41280 + 8208 (bank v6:
+                                             // ROM BRR + gallop extension)
+    localparam SW = 10;                // segment store: 1024 x 16 (2 BSRAM);
+                                       // 3 words/entry -> max 341 entries
 
     assign xRamDin = 16'd0;
     assign xRamRnW = 1'b1;
@@ -147,9 +163,9 @@ module sgb_sfx_play #(
     // latched effect record (xClk), captured during the table fetch
     reg [15:0] rec_brr_off = 0, rec_loop_off = 0, rec_tick = 0;
     reg [15:0] rec_blocks = 0, rec_flags = 0, rec_count = 0;
-    reg [15:0] rec_seg_off = 0, rec_seg_cnt = 0;   // bank v5 envelope entry idx/len
+    reg [15:0] rec_seg_off = 0, rec_seg_cnt = 0;   // bank v6 envelope entry idx/len
 
-    // segment store (bank v5 pitch envelopes): SDPB inference, xClk write,
+    // segment store (bank v6 tick+amp envelopes): SDPB inference, xClk write,
     // hClk read. Holds ONE effect's envelope entries, refilled per trigger.
     reg  [15:0] smem [0:(1<<SW)-1];
     reg  [SW-1:0] swptr = 0;             // write pointer (entry word pairs)
@@ -166,7 +182,7 @@ module sgb_sfx_play #(
     reg [6:0]  pend_idx = 0;
     reg [1:0]  pend_seq = 0;
     reg [2:0]  tab_cnt = 0;            // word index within the 16-byte record
-    reg        seg_done = 0;           // envelope entries fetched (bank v5)
+    reg        seg_done = 0;           // envelope entries fetched (bank v6)
     reg        seg_loop = 0;           // 0 = first pass, 1 = loop region
     reg        req_out = 0;            // burst request outstanding in arbiter
     reg [16:0] rem_w = 0;              // words left to fetch in this segment
@@ -186,7 +202,8 @@ module sgb_sfx_play #(
     // sampled record (hClk), latched on the play-echo edge
     reg [15:0] h_tick = 0, h_blocks = 0, h_flags = 0;
     reg [15:0] h_count = 0, h_brr_off = 0, h_loop_off = 0;
-    reg [9:0]  h_seg_cnt = 0;            // envelope entries this effect (bank v5)
+    reg [9:0]  h_seg_cnt = 0;            // envelope entries this effect (bank v6)
+    reg [7:0]  h_amp = 8'hFF;            // output amplitude in force (bank v6)
 
     // hClk FIFO word pump
     reg [15:0] wbuf = 0;               // current word from FIFO
@@ -216,12 +233,14 @@ module sgb_sfx_play #(
     // per-effect sample tick
     reg [15:0] tick_cnt = 0;
 
-    // pitch-envelope sequencer (bank v5): steps through the effect's entries
+    // envelope sequencer (bank v6): steps through the effect's 3-word entries
     // in smem, one entry per segment, on decoded-block boundaries.
-    localparam SR_IDLE=3'd0, SR_B0=3'd1, SR_B1=3'd2, SR_B2=3'd3, SR_RUN=3'd4;
+    localparam SR_IDLE=3'd0, SR_B0=3'd1, SR_B1=3'd2, SR_B2=3'd3,
+               SR_B3=3'd4, SR_RUN=3'd5;
     reg [2:0]   seg_st = SR_IDLE;
     reg [15:0]  seg_blk = 0;             // 16-sample blocks left in this segment
     reg [15:0]  seg_ntick = 0;           // tick reload of the NEXT segment
+    reg [7:0]   seg_namp = 0;            // amp (0..255) of the NEXT segment
     reg [9:0]   seg_left = 0;            // entries still to fetch after this one
     reg         seg_on = 0;              // envelope armed for the current effect
 
@@ -273,7 +292,7 @@ module sgb_sfx_play #(
         wgray <= wgray_next;
     end
 
-    // segment store write side (bank v5): fills smem during ST_SEGRX
+    // segment store write side (bank v6): fills smem during ST_SEGRX
     wire sWrEn = (st == ST_SEGRX) && xRamDoutValid;
     always @(posedge xClk) if (sWrEn) smem[swptr] <= xRamDout;
 
@@ -342,7 +361,8 @@ module sgb_sfx_play #(
                 st           <= ST_TABRX;
             end
             ST_TABRX: begin
-                // latch the record words (bank v5: 8 x u16, all significant)
+                // latch the record words (bank v6: 8 x u16, all significant;
+                // flags[15:8] = initial amp)
                 if (xRamDoutValid) begin
                     case (tab_cnt)
                         3'd0: rec_brr_off  <= xRamDout;
@@ -366,8 +386,12 @@ module sgb_sfx_play #(
             end
             ST_SEGF: begin
                 // single read burst on the effect's segment-table entries
-                xRamAddr     <= BANK_BASE + SEG_OFF + {5'd0, rec_seg_off, 2'd0};
-                xRamBurstLen <= {rec_seg_cnt[8:0], 2'd0};  // entries*4 B, <= 2044
+                // (bank v6: 6 bytes/entry = x4 + x2, shift-add, no multiplier)
+                xRamAddr     <= BANK_BASE + SEG_OFF
+                              + {7'd0, rec_seg_off[13:0], 2'd0}
+                              + {8'd0, rec_seg_off[13:0], 1'b0};
+                xRamBurstLen <= {rec_seg_cnt[8:0], 2'd0}        // entries*6 B,
+                              + {1'd0, rec_seg_cnt[8:0], 1'b0}; // <= 341*6 = 2046
                 xRamReq      <= 1'b1;
                 req_out      <= 1'b1;
                 swptr        <= 0;
@@ -397,7 +421,7 @@ module sgb_sfx_play #(
                         st <= ST_TAB;
                     end else if (pend_play && !seg_done &&
                                  rec_seg_cnt != 16'd0 && rec_blocks != 16'd0) begin
-                        // bank v5: fetch the envelope entries before the echo so
+                        // bank v6: fetch the envelope entries before the echo so
                         // the segment store is settled when the reader starts
                         st <= ST_SEGF;
                     end else begin
@@ -535,7 +559,7 @@ module sgb_sfx_play #(
     always @(posedge hClk) fword <= fmem[rbin[FW-1:0]];
 
     // segment store read: sword is smem[sraddr] registered (1-cycle latency).
-    // The envelope sequencer (SR_B0/B1/B2) walks this pipeline; entries were
+    // The envelope sequencer (SR_B0..B3) walks this pipeline; entries were
     // written by the writer before the echo, so no read/write race exists for
     // the running effect (a retrigger refills smem just before ITS echo).
     always @(posedge hClk) sword <= smem[sraddr];
@@ -579,6 +603,16 @@ module sgb_sfx_play #(
     // final x2 with 16-bit wrap = the emitted sample AND the feedback history
     wire signed [15:0] dec_out = {t16[14:0], 1'b0};
 
+    // bank v6 output scaler: hPcm = (BRR sample * amp) >>> 8, signed.
+    // |dec_out| <= 32768 and amp <= 255, so the product fits signed 24 bits
+    // exactly and the byte pick cannot saturate. The predictor history
+    // (prev1/prev2) stays UNSCALED -- amplitude is output-domain only.
+    // (Verilog multiply is self-determined, so both operands are widened to
+    // 24 bits first; concatenations need $signed to keep signed arithmetic.)
+    wire signed [23:0] amp_prod = $signed({{8{dec_out[15]}}, dec_out})
+                                * $signed({15'd0, h_amp});
+    wire signed [15:0] dec_amp  = amp_prod[23:8];
+
     // last block of a one-shot (infinite effects never set this)
     wire last_block = !h_flags[1] && (blk_rem == 16'd1);
 
@@ -601,13 +635,14 @@ module sgb_sfx_play #(
             ack_last <= 0; hPlaying <= 0; hPcm <= 0; hPcmValid <= 0;
             h_tick <= 0; h_blocks <= 0; h_flags <= 0;
             h_count <= 0; h_brr_off <= 0; h_loop_off <= 0; h_seg_cnt <= 0;
+            h_amp <= 8'hFF;
             bphase <= 0; skip_cnt <= 0; seg_rem <= 0; in_loop_seg <= 0;
             sb <= 0; sb_v <= 0;
             dstate <= D_HDR; brr_shift <= 0; brr_filt <= 0; dbyte <= 0;
             have_dbyte <= 0; nib_i <= 0; prev1 <= 0; prev2 <= 0; blk_rem <= 0;
             tick_cnt <= 0;
-            seg_st <= SR_IDLE; seg_blk <= 0; seg_ntick <= 0; seg_left <= 0;
-            seg_on <= 0; sraddr <= 0;
+            seg_st <= SR_IDLE; seg_blk <= 0; seg_ntick <= 0; seg_namp <= 0;
+            seg_left <= 0; seg_on <= 0; sraddr <= 0;
         end else begin
             hPcmValid <= 1'b0;
 
@@ -636,6 +671,7 @@ module sgb_sfx_play #(
                     h_brr_off <= rec_brr_off;
                     h_loop_off<= rec_loop_off;
                     h_seg_cnt <= rec_seg_cnt[9:0];
+                    h_amp     <= rec_flags[15:8];    // bank v6 initial amp
                     hPlaying  <= 1'b1;
                     need_init <= 1'b1;
                     run_state <= 1'b0;
@@ -674,8 +710,8 @@ module sgb_sfx_play #(
                 seg_rem     <= seg0_len_c;
                 in_loop_seg <= 1'b0;
                 blk_rem     <= total_blk_c;
-                // arm the pitch envelope (bank v5): entry 0 at smem[0] (the
-                // writer filled this effect's entries back from word 0)
+                // arm the envelope (bank v6): entry 0 at smem[0] (the writer
+                // filled this effect's entries back from word 0)
                 if (h_seg_cnt != 10'd0) begin
                     seg_on   <= 1'b1;
                     seg_st   <= SR_B0;
@@ -733,8 +769,9 @@ module sgb_sfx_play #(
                             have_dbyte <= 1'b1;
                         end
                     end else if (sample_tick) begin
-                        // emit the sample for the current nibble
-                        hPcm      <= dec_out;
+                        // emit the sample for the current nibble, scaled by
+                        // the amp in force (bank v6); history stays unscaled
+                        hPcm      <= dec_amp;
                         hPcmValid <= 1'b1;
                         prev2     <= prev1;
                         prev1     <= dec_out;
@@ -746,15 +783,26 @@ module sgb_sfx_play #(
                                 dstate    <= D_HDR;
                             end else begin
                                 if (!h_flags[1]) blk_rem <= blk_rem - 16'd1;
-                                // pitch envelope: count down the segment in
+                                // envelope: count down the segment in
                                 // 16-sample blocks; on its last block apply
-                                // the next segment's tick
+                                // the next segment's tick and amp (bank v6)
                                 if (seg_on && seg_st == SR_RUN) begin
                                     if (seg_blk == 16'd1) begin
                                         h_tick <= seg_ntick;
+                                        h_amp  <= seg_namp;
                                         if (seg_left == 10'd0) begin
-                                            seg_on <= 1'b0;      // final segment:
-                                            seg_st <= SR_IDLE;   // hold this tick
+                                            if (h_flags[2]) begin
+                                                // env-loop (bank v6.1): the
+                                                // wrap entry just reloaded
+                                                // segment-0 tick/amp; re-arm
+                                                // the sequencer at entry 0
+                                                seg_left <= h_seg_cnt - 10'd1;
+                                                sraddr   <= {SW{1'b0}};
+                                                seg_st   <= SR_B0;
+                                            end else begin
+                                                seg_on <= 1'b0;      // final segment:
+                                                seg_st <= SR_IDLE;   // hold tick/amp
+                                            end
                                         end else begin
                                             seg_left <= seg_left - 10'd1;
                                             seg_st   <= SR_B0;   // fetch next entry
@@ -774,10 +822,10 @@ module sgb_sfx_play #(
                 endcase
             end
 
-            // ---- pitch-envelope entry fetch (bank v5) ----
-            // sword lags sraddr by one cycle; SR_B0/B1/B2 walk the pipeline.
+            // ---- envelope entry fetch (bank v6: 3 words per entry) ----
+            // sword lags sraddr by one cycle; SR_B0..B3 walk the pipeline.
             // sraddr already points at the next entry's first word when a
-            // boundary re-enters SR_B0 (it was advanced through SR_B1).
+            // boundary re-enters SR_B0 (it was advanced through SR_B2).
             if (run_state && !flush_active) begin
                 case (seg_st)
                 SR_B0: begin                  // blocks16 word read in flight
@@ -786,12 +834,17 @@ module sgb_sfx_play #(
                 end
                 SR_B1: begin                  // blocks16 valid on sword now
                     seg_blk <= sword;
-                    sraddr  <= sraddr + 1'b1; // -> next entry's blocks16 word
+                    sraddr  <= sraddr + 1'b1; // -> the entry's amp word
                     seg_st  <= SR_B2;
                 end
                 SR_B2: begin                  // tick word valid on sword now
                     seg_ntick <= sword;
-                    seg_st    <= SR_RUN;
+                    sraddr    <= sraddr + 1'b1; // -> next entry's blocks16 word
+                    seg_st    <= SR_B3;
+                end
+                SR_B3: begin                  // amp word valid on sword now
+                    seg_namp <= sword[7:0];
+                    seg_st   <= SR_RUN;
                 end
                 default: ;
                 endcase

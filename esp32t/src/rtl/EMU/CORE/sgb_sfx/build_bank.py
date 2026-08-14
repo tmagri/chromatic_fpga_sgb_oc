@@ -23,7 +23,7 @@ import wave, struct, json, os, argparse
 
 # Sustained-loop SFX-B effects whose rendered capture holds only one pass.
 # Force a full-track loop (loop point at byte 0).
-FORCE_FULL_LOOP = {'b0b', 'b10', 'b19'}
+FORCE_FULL_LOOP = {'b0f', 'b10', 'b19'}
 
 def clamp16(v): return max(-32768, min(32767, v))
 

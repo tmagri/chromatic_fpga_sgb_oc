@@ -22,8 +22,8 @@
 //   vvp /tmp/tb_hang.out
 module tb_sgb_sfx_hang;
     localparam [22:0] BANK_BASE = 23'h100000;
-    localparam BANK_WORDS = 23788;
-    localparam SEG_WBASE  = 21664;
+    localparam BANK_WORDS = 31867;        // 63734 bytes / 2 (bank v6.1)
+    localparam SEG_WBASE  = 25768;        // segment region word base (0xC950/2)
     localparam ITERS      = 200;
 
     reg xClk = 0, hClk = 0;
@@ -55,7 +55,8 @@ module tb_sgb_sfx_hang;
     initial begin
         $readmemh("sgb_sfx/build/sim_bank.hex", psram);
         for (i = 0; i < 73; i = i + 1) psram[128 + i*8 + 2] = 16'd3;
-        for (i = SEG_WBASE + 1; i < BANK_WORDS; i = i + 2) psram[i] = 16'd3;
+        // bank v6: entries are 3 words = blocks16, next_tick, next_amp
+        for (i = SEG_WBASE + 1; i < BANK_WORDS; i = i + 3) psram[i] = 16'd3;
     end
 
     function [15:0] rd_word; input [22:0] a; integer w;

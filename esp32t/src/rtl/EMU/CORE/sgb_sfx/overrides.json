@@ -1,18 +1,9 @@
 {
-    "A21": {
-        "srcn": 60,
-        "tick": 8000
-    },
-    "B16": {
-        "srcn": 60,
-        "tick": 8000
-    },
-    "B0E": {
-        "srcn": 56,
-        "tick": 6000
-    },
-    "B15": {
-        "srcn": 56,
-        "tick": 6000
-    }
+    "A21": {"srcn": 60, "tick": 8000},
+    "B16": {"srcn": 60, "tick": 8000, "flags": 0},
+    "B0E": {"srcn": 56, "tick": 6000},
+    "B15": {"srcn": 56, "tick": 6000},
+    "B06": {"env_loop": true},
+    "B0F": {"srcn": 49, "tick": 523, "gallop_ms": [221, 124, 111]},
+    "B0B": {"srcn": 61, "repeat_env": true, "repeat_gap_ms": 700}
 }

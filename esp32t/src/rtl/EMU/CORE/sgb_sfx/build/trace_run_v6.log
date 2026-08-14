@@ -1,0 +1,165 @@
+APU image: entry=$0400, 5 records
+  $4C30 len=378
+  $4C10 len=24
+  $0400 len=9971
+  $4B00 len=256
+  $4DB0 len=41280
+BRR region: 41280 bytes, 63 directory entries, 55 looped samples
+NOTE: invalid shift block: SRCN $32 region+0x261c hdr=$D0 (player implements the (n>>>3)<<<12 rule)
+NOTE: invalid shift block: SRCN $33 region+0x261c hdr=$D0 (player implements the (n>>>3)<<<12 rule)
+driver booted (entry=$04B1, cycles=409602)
+A01 Nintendo             SRCN $01 (1.29s, noise 0)
+A02 GameOver             SRCN $3E (1.47s, noise 0)
+A03 Drop                 SRCN $00 (1.89s, noise 0)
+A04 OkA                  SRCN $01 (1.37s, noise 0)
+A05 OkB                  SRCN $01 (1.47s, noise 0)
+A06 SelectA              SRCN $25 (1.25s, noise 0)
+A07 SelectB              SRCN $37 (0.45s, noise 0)
+A08 SelectC              SRCN $01 (1.17s, noise 0)
+A09 MistakeBuzzer        SRCN $28 (0.79s, noise 0)
+A0A CatchItem            SRCN $38 (0.59s, noise 0)
+A0B GateSqueak           SRCN $34 (0.61s, noise 0)
+A0C ExplosionSmall       SRCN $3C (2.25s, noise 0)
+A0D ExplosionMedium      SRCN $3C (2.89s, noise 0)
+A0E ExplosionLarge       SRCN $3C (4.35s, noise 0)
+A0F AttackedA            SRCN $3C (0.73s, noise 0)
+A10 AttackedB            SRCN $3C (0.69s, noise 0)
+A11 HitPunchA            SRCN $3C (1.63s, noise 0)
+A12 HitPunchB            SRCN $3C (1.25s, noise 0)
+A13 BreathInAir          SRCN $38 (1.29s, noise 0)
+A14 RocketProjectileA    SRCN $3C, SRCN $38 (1.49s, noise 0)
+A15 RocketProjectileB    SRCN $3C, SRCN $38 (1.21s, noise 0)
+A16 EscapingBubble       SRCN $06 (0.61s, noise 0)
+A17 Jump                 SRCN $06 (0.55s, noise 0)
+A18 FastJump             SRCN $30 (0.57s, noise 0)
+A19 JetTakeoff           SRCN $38 (4.79s, noise 0)
+A1A JetLanding           SRCN $38 (3.11s, noise 0)
+A1B CupBreaking          SRCN $3B (0.65s, noise 0)
+A1C GlassBreaking        SRCN $3B (1.25s, noise 0)
+A1D LevelUp              SRCN $01 (1.31s, noise 0)
+A1E InsertAir            SRCN $38 (0.53s, noise 0)
+A1F SwordSwing           SRCN $39 (0.71s, noise 0)
+A20 WaterFalling         SRCN $3D (1.17s, noise 0)
+A21 Fire                 SRCN $00 (1.51s, noise 0)
+A22 WallCollapsing       SRCN $34 (0.55s, noise 0)
+A23 Cancel               SRCN $25 (1.25s, noise 0)
+A24 Walking              SRCN $30 (0.49s, noise 0)
+A25 BlockingStrike       SRCN $34 (0.49s, noise 0)
+A26 PictureFloats        SRCN $38 (0.85s, noise 0)
+A27 FadeIn               SRCN $38 (1.23s, noise 0)
+A28 FadeOut              SRCN $38 (1.25s, noise 0)
+A29 WindowOpen           SRCN $34 (0.63s, noise 0)
+A2A WindowClose          SRCN $33 (0.55s, noise 0)
+A2B BigLaser             SRCN $39 (0.67s, noise 0)
+A2C StoneGate            SRCN $39 (1.17s, noise 0)
+A2D Teleportation        SRCN $3D (2.81s, noise 0)
+A2E LightningA           SRCN $3C (5.61s, noise 0)
+A2F EarthquakeA          SRCN $3C (6.05s, noise 0, sustained)
+A30 SmallLaser           SRCN $30 (0.55s, noise 0)
+B01 ApplauseSmall        SRCN $37 (5.05s, noise 0, sustained)
+B02 ApplauseMedium       SRCN $37 (5.05s, noise 0, sustained)
+B03 ApplauseLarge        SRCN $37 (5.05s, noise 0, sustained)
+B04 Wind                 SRCN $3E (5.05s, noise 0, sustained)
+B05 Rain                 SRCN $3D (5.05s, noise 0, sustained)
+B06 Storm                SRCN $3E, SRCN $3D (5.05s, noise 0, sustained)
+B07 StormThunder         SRCN $3E, SRCN $3D (5.05s, noise 0, sustained)
+B08 LightningB           SRCN $3C (5.05s, noise 0, sustained)
+B09 EarthquakeB          SRCN $3C (5.05s, noise 0, sustained)
+B0A Avalanche            SRCN $37 (5.05s, noise 0, sustained)
+B0B Wave                 SRCN $3D (2.81s, noise 0)
+B0C River                SRCN $3D (5.05s, noise 0, sustained)
+B0D Waterfall            SRCN $3D (5.05s, noise 0, sustained)
+B0E SmallCharRunning     SRCN $07 (5.05s, noise 0, sustained)
+B0F HorseRunning         SRCN $31 (5.05s, noise 0, sustained)
+B10 WarningSound         SRCN $07 (0.87s, noise 0)
+B11 ApproachingCar       SRCN $39 (5.05s, noise 0, sustained)
+B12 JetFlying            SRCN $38 (5.05s, noise 0, sustained)
+B13 UfoFlying            SRCN $3E (5.05s, noise 0, sustained)
+B14 ElectromagneticWaves SRCN $01 (5.05s, noise 0, sustained)
+B15 ScoreUp              SRCN $17, SRCN $01 (6.05s, noise 0, sustained)
+B16 FireB                SRCN $00 (6.05s, noise 0, sustained)
+B17 CameraShutter        SRCN $37 (0.47s, noise 0)
+B18 WriteFormanto        SRCN $31 (0.67s, noise 0)
+B19 ShowUpTitle          SRCN $3E (0.73s, noise 0)
+trace saved to /Users/troymagri/Desktop/chromatic_fpga_sgb_oc/esp32t/src/rtl/EMU/CORE/sgb_sfx/build/trace.json
+segment region over budget (71306 > 0x10000 at amp_step=2); coarsening to 4
+segment region over budget (69002 > 0x10000 at amp_step=4); coarsening to 8
+segment region over budget (66302 > 0x10000 at amp_step=8); coarsening to 16
+amp_step=16: 1999 entries, 8208 extension bytes
+
+bank v6: 63530 bytes (62.0 KB) | 73/73 effects mapped | 18 loop-forever | 55 segmented / 1999 entries | 55 amp-shaped | BRR @0x800 (+8208 ext), segments @0xc950
+
+fx     fixed    env     len  note
+A01    0.204  0.233  108048  
+A02    0.150  0.067   16032  
+A03    0.237  0.120   70656  
+A04    0.133  0.326   94176  
+A05    0.186  0.330   99792  
+A06    0.425  0.362   51568  
+A07    0.236  0.206    8592  
+A08    0.563  0.559   38880  
+A09    0.689  0.709    2224  
+A0A    0.192  0.180    1584  
+A0B    0.313  0.492    6256  
+A0C    0.633  0.590    8000  
+A0D    0.661  0.536    8000  
+A0E    0.622  0.616    8000  
+A0F    0.063  0.105    8000  
+A10    0.074  0.253    8000  
+A11    0.621  0.520    8000  
+A12    0.447  0.655    8000  
+A13    0.053  0.195    7072  
+A14    0.074  0.279    8000  multi-sample effect
+A15    0.066  0.337    8000  multi-sample effect
+A16    0.084  0.461    6304  
+A17    0.093  0.287    8112  
+A18    0.029  0.162   13888  
+A19    0.071  0.187   94048  
+A1A    0.060  0.062  131920  
+A1B    0.133  0.104    5488  
+A1C    0.491  0.432    5488  
+A1D    0.336  0.304   36032  
+A1E    0.246  0.156    1504  
+A1F    0.073  0.284    9712  
+A20    0.070  0.419   12352  
+A21    0.040  0.057    8000  
+A22    0.157  0.301    6256  
+A23    0.174  0.373   16208  
+A24    0.536  0.080    2400  
+A25    0.480  0.473    6256  
+A26    0.072  0.080    3984  
+A27    0.106  0.223    1568  
+A28    0.122  0.291    1552  
+A29    0.124  0.492    6256  
+A2A    0.144  0.129    4992  
+A2B    0.061  0.338    9968  
+A2C    0.141  0.265    1984  
+A2D    0.056  0.067  312848  
+A2E    0.550  0.550    8000  
+A2F    0.683  0.693    8000  
+A30    0.030  0.307   12704  
+B01    0.801  0.801   22320  
+B02    0.660  0.660   22320  
+B03    0.408  0.408   22320  
+B04    0.035  0.035    3424  
+B05    0.619  0.619   16128  
+B06    0.612  0.612   16128  multi-sample effect
+B07    0.065  0.065    3424  multi-sample effect
+B08    0.828  0.835    8000  
+B09    0.639  0.646    8000  
+B0A    0.951  0.951   22320  
+B0B    0.887  0.488  147328  
+B0C    0.335  0.335   16128  
+B0D    0.877  0.877   16128  
+B0E    0.047  0.047    7312  
+B0F    0.167  0.167   29184  
+B10    0.486  0.489   20160  
+B11    0.452  0.452    3312  
+B12    0.605  0.605    7312  
+B13    0.836  0.836    3424  
+B14    0.000  0.000     240  
+B15    0.044  0.044    7312  
+B16    0.005  0.004    8000  
+B17    0.122  0.161    8736  
+B18    0.000  0.000     992  
+B19    0.083  0.083    3488  

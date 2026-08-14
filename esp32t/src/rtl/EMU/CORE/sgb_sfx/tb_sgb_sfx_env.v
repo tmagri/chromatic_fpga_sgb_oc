@@ -1,24 +1,27 @@
 `timescale 1ns/1ps
-// tb_sgb_sfx_env.v -- verify the bank-v5 pitch-envelope sequencer in
-// sgb_sfx_play at REAL tick rates (no sim-speed tick patching).
+// tb_sgb_sfx_env.v -- verify the bank-v6 pitch+amplitude envelope sequencer
+// in sgb_sfx_play at REAL tick rates (no sim-speed tick patching).
 //
 // The sweep TB (tb_sgb_sfx_play.v) patches every tick to 3 to run fast; that
-// proves sample VALUES but not envelope TIMING. This TB plays a few envelope
-// effects with their true per-segment tick dividers and checks, sample by
-// sample, that the tick in force for each emitted sample matches the bank's
-// piecewise-constant envelope: segment 0 holds the record's tick for
-// entry[0].blocks16*16 samples, then segment 1 holds entry[0].tick for
-// entry[1].blocks16*16 samples, and so on; the final segment holds its tick
-// to the end. Any desync in the block-boundary countdown, the smem fetch
-// pipeline, or the tick reload mux shows up as a per-sample tick mismatch.
+// proves sample VALUES (including the amp scaling, via ref_XXX.hex) but not
+// envelope TIMING. This TB plays a few envelope effects with their true
+// per-segment tick dividers and checks, sample by sample, that the tick AND
+// the amplitude in force for each emitted sample match the bank's
+// piecewise-constant envelope: segment 0 holds the record's tick and the
+// record's initial amp (flags[15:8]) for entry[0].blocks16*16 samples, then
+// segment 1 holds entry[0].next_tick / entry[0].next_amp for
+// entry[1].blocks16*16 samples, and so on; the final segment holds the last
+// entry's next_tick/next_amp to the end. Any desync in the block-boundary
+// countdown, the smem fetch pipeline, the tick reload mux, or the amp
+// reload shows up as a per-sample mismatch.
 //
 // Run from esp32t/src/rtl/EMU/CORE:
 //   iverilog -g2001 -o /tmp/tb_env.out sgb_sfx/tb_sgb_sfx_env.v sgb_sfx_play.v
 //   vvp /tmp/tb_env.out
 module tb_sgb_sfx_env;
     localparam [22:0] BANK_BASE = 23'h100000;
-    localparam BANK_WORDS = 23788;        // 47576 bytes / 2 (bank v5)
-    localparam SEG_WBASE  = 21664;        // segment region word base (0xA940/2)
+    localparam BANK_WORDS = 31867;        // 63734 bytes / 2 (bank v6.1)
+    localparam SEG_WBASE  = 25768;        // segment region word base (0xC950/2)
     localparam MAXS       = 120000;
 
     reg xClk = 0, hClk = 0;
@@ -91,12 +94,14 @@ module tb_sgb_sfx_env;
         end
     end
 
-    // ---- capture the tick in force for each emitted sample ----
+    // ---- capture the tick and amp in force for each emitted sample ----
     integer scnt = 0;
     reg [15:0] obs_tick [0:MAXS-1];
+    reg [7:0]  obs_amp  [0:MAXS-1];
     always @(posedge hClk) begin
         if (hPcmValid && scnt < MAXS) begin
             obs_tick[scnt] <= dut.h_tick;      // pre-update value this sample
+            obs_amp[scnt]  <= dut.h_amp;
             scnt <= scnt + 1;
         end
     end
@@ -111,14 +116,16 @@ module tb_sgb_sfx_env;
     endtask
 
     // play effect idx (a count-limited one-shot) to its natural end, then
-    // verify the observed per-sample tick matches the bank envelope exactly
+    // verify the observed per-sample tick and amp match the bank envelope
+    // exactly. Bank v6 entries are 3 words: blocks16, next_tick, next_amp.
     task check_env;
         input [6:0] idx;
         input integer timeout_ms;
-        integer t, tmax, total, s, e, segb, mm, first_mm;
+        integer t, tmax, total, s, e, segb, mm, first_mm, ma, first_ma;
         reg [15:0] tick0, etick, r_flags;
         reg [15:0] r_count, r_blocks;
         reg [15:0] seg_off_r, seg_cnt_r;
+        reg [7:0]  amp0, eamp;
         begin
             r_flags   = rec_word(idx, 4);
             r_count   = rec_word(idx, 5);
@@ -126,6 +133,7 @@ module tb_sgb_sfx_env;
             tick0     = rec_word(idx, 2);
             seg_off_r = rec_word(idx, 6);
             seg_cnt_r = rec_word(idx, 7);
+            amp0      = r_flags[15:8];
             total     = (r_flags[0] ? r_count : r_blocks) * 16;
 
             scnt = 0;
@@ -143,52 +151,72 @@ module tb_sgb_sfx_env;
                 $display("FAIL env fx%0d: %0d samples, expected %0d",
                          idx, scnt, total);
             end else begin
-                // walk the expected piecewise-constant tick and compare.
+                // walk the expected piecewise-constant tick+amp and compare.
                 // Alignment note: hPcmValid is registered, so the TB samples
-                // h_tick one hClk after the emit edge; on a boundary emit the
-                // RTL updates h_tick on that same edge (the tick reload for the
-                // NEXT interval is correct), so the boundary sample itself is
-                // observed with the NEW tick. Expected tick of sample s is
-                // therefore the envelope value of sample min(s+1, total-1):
-                // each segment's observed span is shifted one sample earlier.
-                mm = 0; first_mm = -1; s = 0;
+                // h_tick/h_amp one hClk after the emit edge; on a boundary
+                // emit the RTL updates both on that same edge (the reload for
+                // the NEXT interval is correct), so the boundary sample itself
+                // is observed with the NEW tick/amp. Expected values of sample
+                // s are therefore the envelope values of sample
+                // min(s+1, total-1): each segment's observed span is shifted
+                // one sample earlier.
+                mm = 0; first_mm = -1; ma = 0; first_ma = -1; s = 0;
                 if (seg_cnt_r == 0) begin
                     // single fixed segment for the whole effect
-                    for (s = 0; s < total; s = s + 1)
+                    for (s = 0; s < total; s = s + 1) begin
                         if (obs_tick[s] !== tick0) begin
                             mm = mm + 1; if (first_mm < 0) first_mm = s;
                         end
+                        if (obs_amp[s] !== amp0) begin
+                            ma = ma + 1; if (first_ma < 0) first_ma = s;
+                        end
+                    end
                 end else begin
                     segb = 0;   // envelope-space boundary (sample index)
                     for (e = 0; e < seg_cnt_r; e = e + 1) begin : per_entry
                         integer blk16; integer end_s; integer obs_end;
-                        blk16 = psram[SEG_WBASE + (seg_off_r + e)*2];
+                        blk16 = psram[SEG_WBASE + (seg_off_r + e)*3];
                         etick = (e == 0) ? tick0
-                                         : psram[SEG_WBASE + (seg_off_r + e - 1)*2 + 1];
+                                         : psram[SEG_WBASE + (seg_off_r + e - 1)*3 + 1];
+                        eamp  = (e == 0) ? amp0
+                                         : psram[SEG_WBASE + (seg_off_r + e - 1)*3 + 2];
                         end_s = segb + blk16*16;
                         if (end_s > total) end_s = total;
-                        // observed span of this tick: [segb-1, end_s-1)
+                        // observed span of this tick/amp: [segb-1, end_s-1)
                         obs_end = end_s - 1;
-                        for (s = (e == 0 ? 0 : segb - 1); s < obs_end; s = s + 1)
+                        for (s = (e == 0 ? 0 : segb - 1); s < obs_end; s = s + 1) begin
                             if (obs_tick[s] !== etick) begin
                                 mm = mm + 1; if (first_mm < 0) first_mm = s;
                             end
+                            if (obs_amp[s] !== eamp) begin
+                                ma = ma + 1; if (first_ma < 0) first_ma = s;
+                            end
+                        end
                         segb = end_s;
                     end
-                    // final segment holds the last entry's next-tick to the end
-                    etick = psram[SEG_WBASE + (seg_off_r + seg_cnt_r - 1)*2 + 1];
-                    for (s = segb - 1; s < total; s = s + 1)
+                    // final segment holds the last entry's next tick/amp
+                    etick = psram[SEG_WBASE + (seg_off_r + seg_cnt_r - 1)*3 + 1];
+                    eamp  = psram[SEG_WBASE + (seg_off_r + seg_cnt_r - 1)*3 + 2];
+                    for (s = segb - 1; s < total; s = s + 1) begin
                         if (obs_tick[s] !== etick) begin
                             mm = mm + 1; if (first_mm < 0) first_mm = s;
                         end
+                        if (obs_amp[s] !== eamp) begin
+                            ma = ma + 1; if (first_ma < 0) first_ma = s;
+                        end
+                    end
                 end
-                if (mm == 0)
+                if (mm == 0 && ma == 0)
                     $display("  ENV EXACT  fx%0d: %0d samples, %0d segments",
                              idx, total, seg_cnt_r + 1);
                 else begin
                     fails = fails + 1;
-                    $display("  ENV MISMATCH fx%0d: %0d/%0d samples (first @%0d)",
-                             idx, mm, total, first_mm);
+                    if (mm != 0)
+                        $display("  ENV TICK MISMATCH fx%0d: %0d/%0d samples (first @%0d)",
+                                 idx, mm, total, first_mm);
+                    if (ma != 0)
+                        $display("  ENV AMP  MISMATCH fx%0d: %0d/%0d samples (first @%0d)",
+                                 idx, ma, total, first_ma);
                 end
             end
         end
@@ -199,10 +227,10 @@ module tb_sgb_sfx_env;
         wait (!xReset && !hReset);
         repeat (32) @(posedge xClk);
 
-        // A01 (2-segment coin), A02 (melody), A03 (long glide)
-        $display("fx A01 Nintendo (2 segments)");   check_env(7'd0, 60000);
-        $display("fx A02 GameOver (82 entries)");   check_env(7'd1, 60000);
-        $display("fx A03 Drop (114 entries)");      check_env(7'd2, 60000);
+        // A01 (coin), A02 (melody), A03 (long glide) -- all enveloped
+        $display("fx A01 Nintendo");   check_env(7'd0, 60000);
+        $display("fx A02 GameOver");   check_env(7'd1, 60000);
+        $display("fx A03 Drop");       check_env(7'd2, 60000);
 
         if (fails) $display("RESULT: FAIL (%0d)", fails);
         else       $display("RESULT: PASS");

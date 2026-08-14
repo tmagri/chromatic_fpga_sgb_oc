@@ -15,33 +15,40 @@
 #     DSP pitch the driver plays it, and how long a one-shot runs.
 #
 # Bank layout (build/sgb_sfx_bank.bin, loaded by the MCU at PSRAM 0x100000):
-#   0x000  header   'SFXB', u16 version(5), u16 count, u32 table_off,
+#   0x000  header   'SFXB', u16 version(6), u16 count, u32 table_off,
 #                    u32 brr_off, u32 seg_off
-#   0x100  table    73 x 16-byte little-endian records (record v5, 8 x u16),
+#   0x100  table    73 x 16-byte little-endian records (record v6, 8 x u16),
 #                    index = effect: A01..A30 -> 0..47, B01..B19 -> 48..72
 #                     u16 brr_off    byte offset of first BRR block in region
 #                     u16 loop_off   byte offset of loop block; 0xFFFF = none
 #                     u16 tick       segment-0 hClk divider reload
 #                     u16 blocks     first-pass block count (incl. terminal)
 #                     u16 flags      bit0 = loop region valid,
-#                                    bit1 = loop forever
+#                                    bit1 = loop forever,
+#                                    bits 15:8 = initial amplitude 0..255
 #                     u16 count      total BLOCKS to emit (0 = natural end /
 #                                    loop-forever); 16-sample granularity
 #                     u16 seg_off    entry index into the segment region
-#                     u16 seg_count  envelope entries (0 = fixed pitch)
-#   0x800  region   verbatim $4DB0 BRR record (byte offsets above are into it)
-#   seg_off region  pitch envelope: seg_count x (u16 blocks16 of the current
-#                    segment, u16 tick of the NEXT segment). The first
-#                    segment's tick is the record's tick field; the final
-#                    segment has no entry and holds its tick to the end.
+#                     u16 seg_count  envelope entries (0 = constant seg-0)
+#   0x800  region   verbatim $4DB0 BRR record, then (bank v6) constructed
+#                    extension blocks (e.g. the B0F horse gallop cycle);
+#                    byte offsets above are into this combined region
+#   seg_off region  tick+amp envelope: seg_count x (u16 blocks16 of the
+#                    current segment, u16 tick of the NEXT segment, u16 amp
+#                    of the NEXT segment, 0..255). The first segment's tick
+#                    is the record's tick field and its amp is flags[15:8];
+#                    the final segment has no entry and holds its tick/amp
+#                    to the end. The player scales every output sample by
+#                    the amp in force: pcm_out = (brr_pcm * amp) >>> 8.
 #
-# The pitch envelope comes from re-tracing each effect through the real BIOS
-# APU code and run-length-encoding the dominant voice's DSP pitch writes over
-# time (see debug/pitch_timeline.py for the standalone investigation tool).
-# One-shots get the full contour; loop-forever SFX-B ambiences keep a single
-# pitch. The sample SEQUENCE the player emits is unchanged by the envelope --
-# only the per-sample rate varies -- so the bit-exact ref streams below stay
-# valid; the envelope is verified separately in simulation.
+# The envelopes come from re-tracing each effect through the real BIOS APU
+# code: the dominant voice's DSP pitch writes (run-length-encoded, bank v5)
+# and its DSP envelope level (decimated x32 = 1 ms steps, bank v6). One-shots
+# get the full contour; loop-forever SFX-B ambiences keep a single pitch and
+# full amplitude. The sample SEQUENCE the player emits is unchanged by the
+# envelopes -- only the per-sample rate and amplitude vary -- so the bit-exact
+# ref streams below (which include the amp scaling) stay valid; the envelope
+# timing is verified separately in simulation.
 #
 # The tool also emits, under build/:
 #   sgb_sfx_bank.vh / .json   documentation + manifest
@@ -51,9 +58,10 @@
 #   trace.json                raw per-effect trace stats (reuse with --reuse)
 #
 # Fidelity scope (see plan / README): single dominant sample per effect,
-# traced piecewise-constant pitch envelope (bank v5; no Gaussian, no ADSR,
-# no echo), nearest-sample rate conversion, BRR loop points and predictor
-# history carry taken from the ROM data.
+# traced piecewise-constant pitch + amplitude envelopes (bank v6; no
+# Gaussian, no ADSR curve shapes beyond the traced envelope, no echo),
+# nearest-sample rate conversion, BRR loop points and predictor history
+# carry taken from the ROM data.
 #
 # Usage:
 #   python3 extract_apu.py                 # full run (trace + build)
@@ -271,9 +279,16 @@ def trace_all(only=None, wavdir=None):
             # time-ordered pitch runs of the energy-dominant voice (the
             # pitch-envelope source; see build_segments)
             runs = []
+            env = []
             if stats['energy']:
                 dom = max(stats['energy'], key=stats['energy'].get)
                 runs = reduce_runs(rle_runs(snap, dom))
+                # bank v6 amplitude source: the dominant voice's DSP envelope
+                # (0..0x7FF) decimated x32 (1 ms steps) from the trigger.
+                # Samples where the voice is silent read 0.
+                for i in range(0, len(snap), 32):
+                    hit = next((t for t in snap[i] if t[0] == dom), None)
+                    env.append(hit[2] if hit else 0)
             # JSON-serializable stats (dict keys -> str). The raw audio is not
             # kept; the trimmed audible duration is what classification needs.
             out[key] = {
@@ -287,6 +302,7 @@ def trace_all(only=None, wavdir=None):
                 'duration_s': audible_duration(audio),
                 'hit_cap': hit_cap,
                 'runs': runs,
+                'env': env,
             }
             top = sorted(stats['energy'].items(), key=lambda kv: -kv[1])[:3]
             tops = ", ".join(f"SRCN ${s:02X}" for s, _ in top) or "silent"
@@ -305,7 +321,7 @@ def heard_any(audio, thresh=256):
     return any(abs(l) + abs(r) > thresh for l, r in audio)
 
 # ---------------------------------------------------------------------------
-# pitch envelope: timeline runs -> bank v5 segment entries
+# envelopes: timeline runs + traced DSP envelope -> bank v6 segment data
 # ---------------------------------------------------------------------------
 #
 # The player is varispeed: with pitch P it emits one decoded sample every
@@ -315,17 +331,38 @@ def heard_any(audio, thresh=256):
 # M = n32 * P / 4096 samples -- so run i maps to
 #     blocks16_i = M_i / 16        (the record's 16-sample block granularity)
 #     tick_i     = round(HCLK / R_i) - 1
+# Bank v6 adds amplitude: the traced DSP envelope of the dominant voice
+# (0..0x7FF, decimated x32 = 1 ms) is quantized to 0..255 and quantized
+# further into amp_step-sized levels; the player multiplies every emitted
+# sample by the amp in force (>>> 8). Amplitude changes are aligned to block
+# boundaries (16-sample / ~0.5 ms granularity -- an inaudible step).
 # The segment table stores, per transition, the CURRENT segment's blocks16
-# and the NEXT segment's tick; the first segment's tick is the record's tick
-# field and the final segment has no entry (it holds its tick until the
-# effect's own end, so the envelope can never desync from the block stream).
+# and the NEXT segment's tick and amp; the first segment's tick is the
+# record's tick field, its amp is record flags[15:8], and the final segment
+# has no entry (it holds its tick/amp until the effect's own end, so the
+# envelope can never desync from the block stream).
 
-def build_segments(runs, total_blocks):
-    """Reduce timeline runs into v5 segment data spanning `total_blocks`
-    16-sample blocks. Returns (entries, segments, tick0):
-      entries  list of (blocks16, next_tick) bank entries ([] = no envelope)
-      segments full per-segment [(blocks16, tick)] list (documentation/checks)
-      tick0    the first segment's tick (None if runs are unusable)"""
+def build_segments_v6(runs, env, total_blocks, tick_fallback, amp_step):
+    """Bank v6 unified segment builder: quantize the effect's piecewise
+    (tick, amp) timeline over `total_blocks` 16-sample blocks.
+
+    runs   [(P, n32, sum_env)] pitch timeline in REAL time (n32 = DSP output
+           samples at 32 kHz); [] = fixed pitch at `tick_fallback`.
+    env    dominant voice's DSP envelope timeline, 0..0x7FF at 1 ms steps
+           ([] = full amplitude throughout).
+    Returns (segs, tick0, amp0): segs = [(blocks16, tick, amp)] spanning
+    total_blocks exactly; tick0/amp0 are segment 0's values (= the record's
+    tick field and flags[15:8]). The caller derives bank entries as all
+    segments but the last."""
+    def amp_q(i_ms):
+        if not env:
+            return 0xFF
+        if i_ms < 0 or i_ms >= len(env) or env[i_ms] <= 0:
+            return 0
+        a = int(round(env[i_ms] * 255.0 / 2047.0))
+        return min(255, ((a + amp_step // 2) // amp_step) * amp_step)
+    if total_blocks <= 0:
+        return [], None, 0xFF
     # pitch<=0 = driver paused the voice: donate the time to the left run
     cleaned = []
     for P, n, e in runs:
@@ -334,43 +371,41 @@ def build_segments(runs, total_blocks):
                 cleaned[-1][1] += n
             continue
         cleaned.append([P, n, e])
-    if not cleaned:
-        return [], [], None
-    conv = []
-    for P, n, e in cleaned:
-        blk_f = n * P / PITCH_1X / 16.0
-        tick = max(1, round(HCLK * PITCH_1X / (DSP_RATE * P)) - 1)
-        conv.append([blk_f, tick])
-    # sub-half-block dust (<8 emitted samples) merges left
-    merged = []
-    for blk_f, tick in conv:
-        if blk_f < 0.5:
-            if merged:
-                merged[-1][0] += blk_f
-            continue
-        merged.append([blk_f, tick])
-    if not merged:
-        return [], [], None
-    # block boundaries (clamped to total; the last run absorbs the remainder
-    # or whatever is left when the timeline over-runs the effect)
-    bounds, cum_f = [], 0.0
-    for blk_f, _ in merged:
-        cum_f += blk_f
-        bounds.append(min(total_blocks, int(round(cum_f))))
-    bounds[-1] = total_blocks
-    segs, prev = [], 0
-    for b, (_, tick) in zip(bounds, merged):
-        if b > prev:
-            segs.append([b - prev, tick])
-            prev = b
-    if prev < total_blocks:
-        segs.append([total_blocks - prev, merged[-1][1]])
-    if len(segs) < 2:
-        # everything collapsed to one pitch: no envelope, but report the pitch
-        return [], segs, segs[0][1] if segs else merged[0][1]
-    entries = [(blocks, segs[i + 1][1])
-               for i, (blocks, _) in enumerate(segs[:-1])]
-    return entries, segs, segs[0][1]
+    segs = []
+    if cleaned:
+        # cumulative block boundary + start time per run (fractional blocks)
+        cb, ct, ticks, rates = [], [], [], []
+        b_f = 0.0; t_ms = 0.0
+        for P, n, e in cleaned:
+            b_f += n * P / PITCH_1X / 16.0
+            t_ms += n * 1000.0 / DSP_RATE
+            cb.append(b_f); ct.append(t_ms)
+            ticks.append(max(1, round(HCLK * PITCH_1X / (DSP_RATE * P)) - 1))
+            rates.append(DSP_RATE * P / PITCH_1X)
+        j = 0
+        for b in range(total_blocks):
+            # block b belongs to the run holding its center sample
+            while j < len(cleaned) - 1 and b + 0.5 >= cb[j]:
+                j += 1
+            b_start = cb[j - 1] if j else 0.0
+            t_start = ct[j - 1] if j else 0.0
+            t = t_start + (b - b_start) * 16.0 / rates[j] * 1000.0
+            am = amp_q(int(round(t)))
+            if segs and segs[-1][1] == ticks[j] and segs[-1][2] == am:
+                segs[-1][0] += 1
+            else:
+                segs.append([1, ticks[j], am])
+    else:
+        R = HCLK / (tick_fallback + 1)
+        for b in range(total_blocks):
+            am = amp_q(int(round(b * 16.0 / R * 1000.0)))
+            if segs and segs[-1][1] == tick_fallback and segs[-1][2] == am:
+                segs[-1][0] += 1
+            else:
+                segs.append([1, tick_fallback, am])
+    if not segs:
+        return [], None, 0xFF
+    return segs, segs[0][1], segs[0][2]
 
 def run_total_blocks(runs):
     """The looped-one-shot duration implied by the timeline (in 16-sample
@@ -407,16 +442,23 @@ def audible_duration(audio, thresh=256):
             last = i
     return (last + 1) / DSP_RATE
 
-def classify(trace, samples, overrides):
-    """Build the 73 effect records (record v5). Returns
-    (records, manifest, seg_entries) where records is index-ordered
-    (A01..A30, B01..B19), each entry is
+def classify(trace, samples, overrides, region, amp_step=2):
+    """Build the 73 effect records (record v6). Returns
+    (records, manifest, seg_entries, extension) where records is
+    index-ordered (A01..A30, B01..B19), each entry is
     (brr_off, loop_off, tick, blocks, flags, count, seg_off, seg_count)
-    with seg_off a placeholder assigned by emit(), and seg_entries[i] is the
-    effect's list of (blocks16, next_tick) segment-table entries."""
+    with seg_off a placeholder assigned by emit(), seg_entries[i] is the
+    effect's list of (blocks16, next_tick, next_amp) segment-table entries,
+    and extension is constructed BRR bytes appended after the verbatim ROM
+    region (bank v6: e.g. the B0F horse gallop cycle).
+
+    Record v6: flags[15:8] = initial amplitude (0..255; player scales the
+    decoded PCM by it, >>> 8); segment entries carry next_amp. `amp_step`
+    is the amplitude quantization (entry-budget tuning, see main())."""
     records = []
     manifest = {}
     seg_entries = []
+    extension = bytearray()
     sets = [('A', render.A_NAMES, render.A_PITCH),
             ('B', render.B_NAMES, render.B_PITCH)]
     for side, names, pitches in sets:
@@ -426,7 +468,9 @@ def classify(trace, samples, overrides):
             rec = {'effect': key, 'name': names[idx], 'side': side,
                    'attr_pitch': pitches[idx]}
             brr_off = loop_off = tick = blocks = flags = count = None
-            entries, segs = [], []
+            segs, runs, env_tl, is_force = [], [], [], False
+            env_loop = False          # flags bit2: envelope restarts after its
+            cyc_blocks = 0            # last entry, forever (bank v6 env-loop)
             if tr and tr['energy']:
                 # dominant sample = largest envelope-energy share
                 srcn = max((int(k) for k in tr['energy']),
@@ -445,15 +489,24 @@ def classify(trace, samples, overrides):
                 # the driver's envelope decides when the sound stops (BRR
                 # keeps looping underneath while it fades). E.g. B0B Wave
                 # loops forever in BRR but its envelope dies by ~2.5 s, so
-                # the trace ends early and it becomes a count-based one-shot.
+                # the trace ends early and it becomes a count-based one-shot
+                # (bank v6 repeats the swell envelope, see repeat_env).
                 # Traces without hit_cap data (old trace.json) fall back to
                 # the B-loop-set heuristic.
-                FORCE_FULL_LOOP = {'B0B', 'B10', 'B19'}
+                # Sustained-in-game B effects whose sample has no usable loop:
+                # force a full-track loop (loop point = sample start). Only
+                # B19 is left here (bank v6): B0F HorseRunning now gets a
+                # constructed gallop-cycle extension (overrides gallop_ms),
+                # and B10 WarningSound uses SRCN 7's NATURAL loop (blocks
+                # 7-10 = the 830 Hz tone; a full-track loop grinds at 300 Hz,
+                # the "brrrr" heard on hardware).
+                FORCE_FULL_LOOP = {'B19'}
                 is_force = (key in FORCE_FULL_LOOP)
                 sustained = tr.get('hit_cap',
                                    side == 'B' and idx in render.B_LOOP)
                 if is_force: sustained = True
                 runs = tr.get('runs', [])
+                env_tl = tr.get('env', [])       # bank v6 amplitude source
                 if smp is None:
                     rec['error'] = f"SRCN ${srcn:02X} has no directory entry"
                 elif P == 0 and not runs:
@@ -480,17 +533,9 @@ def classify(trace, samples, overrides):
                     else:
                         loop_off = smp['loop_off'] if smp['loop_off'] is not None else 0xFFFF
                     blocks = smp['blocks']          # first-pass blocks incl. terminal
-                # ---- pitch envelope (record v5) ----
-                # Loop-forever ambiences keep a single (median) pitch: their
-                # timelines are jitter around a drone and the envelope would
-                # have to be loop-aligned; one-shots get the full contour.
-                if runs and flags in (0, 1) and 'error' not in rec:
-                    total = run_total_blocks(runs) if flags == 1 else blocks
-                    entries, segs, tick0 = build_segments(runs, total)
-                    if entries and tick0:
-                        tick = tick0                # record tick = segment-0 tick
-                        if flags == 1:
-                            count = total           # envelope-spans duration
+                # bank v6 segmentation happens once, AFTER the overrides below
+                # (overrides may re-pick srcn/tick/flags/count or construct
+                # extension regions) -- see the build_segments_v6 call there.
                 rec.update({'srcn': srcn, 'energy_share': round(share, 3),
                             'noise_share': round(tr['noise'] / tot, 3) if tot else 0.0,
                             'pitch': P, 'pitch_min': P0,
@@ -502,14 +547,20 @@ def classify(trace, samples, overrides):
                             'segments': segs})
             else:
                 rec['error'] = 'silent in trace'
-            # manual overrides (srcn re-pick / tick / count / flags / noseg)
+            # manual overrides (srcn re-pick / tick / count / flags / noseg /
+            # gallop_ms / repeat_env)
             ov = overrides.get(key, {})
             if ov:
                 srcn = ov.get('srcn', rec.get('srcn'))
                 smp = samples.get(srcn) if srcn is not None else None
                 if smp is not None:
                     brr_off = smp['brr_off']
-                    loop_off = smp['loop_off'] if smp['loop_off'] is not None else 0xFFFF
+                    if smp['loop_off'] is not None:
+                        loop_off = smp['loop_off']
+                    elif (flags or 0) & 2:
+                        loop_off = brr_off   # loop-forever on a loop-less sample
+                    else:
+                        loop_off = 0xFFFF
                     blocks = smp['blocks']
                     rec['srcn'] = srcn
                     rec['start_addr'] = smp['start']
@@ -518,65 +569,207 @@ def classify(trace, samples, overrides):
                     rec.pop('error', None)
                 if 'tick' in ov:
                     tick = ov['tick']; rec['tick'] = tick
-                    entries = []                    # manual tick = fixed pitch
+                    runs = []                     # manual tick = fixed pitch
                 if 'count' in ov: count = ov['count']
                 if 'flags' in ov: flags = ov['flags']
-                if ov.get('noseg'): entries = []
+                if ov.get('noseg'): runs, env_tl, segs = [], [], []
+                if 'gallop_ms' in ov and smp is not None:
+                    # bank v6 constructed region: B0F HorseRunning. SRCN 49 is
+                    # one ~5 ms thud + silent tail; the driver re-triggers it
+                    # in a three-beat gait ({221,124,111} ms strides). Append
+                    # one gait cycle to the region -- the sample followed by
+                    # zero blocks padding each beat to its stride length -- and
+                    # make the record loop it forever: a gallop, not a "brrrr"
+                    # (the v5 full-track loop re-hit the thud every 11.6 ms).
+                    Rg = HCLK / ((tick or 1) + 1)
+                    body = region[smp['brr_off']:smp['brr_off'] + smp['blocks'] * 9]
+                    ext = bytearray()
+                    for ms in ov['gallop_ms']:
+                        beat = max(smp['blocks'], int(round(ms / 1000.0 * Rg / 16)))
+                        blk = bytearray(body)
+                        # clear the terminal end flag in the copy: the cycle
+                        # wraps by its byte length (player and reference both),
+                        # not per beat
+                        blk[-9] &= 0xFC
+                        ext += blk + b'\x00' * ((beat - smp['blocks']) * 9)
+                    brr_off = loop_off = len(region) + len(extension)
+                    extension += bytes(ext)
+                    blocks = len(ext) // 9
+                    flags, count = 3, 0
+                    rec['blocks'] = blocks
+                    rec['extension'] = brr_off
+                if ov.get('repeat_env') and env_tl:
+                    # bank v6 env-loop: B0B Wave. The sample's natural loop is
+                    # flat hiss; the wave swell IS the DSP envelope, which dies
+                    # by ~2.5 s. One swell + silent gap forms the envelope
+                    # CYCLE; the player restarts it forever (flags bit2) so the
+                    # wave keeps surging with its break until a SOUND stop --
+                    # matching the original, which loops indefinitely.
+                    gap = int(ov.get('repeat_gap_ms', 700))
+                    env_tl = list(env_tl) + [0] * gap     # one cycle, ends silent
+                    runs = []                     # fixed pitch across the cycle
+                    R_rp = HCLK / ((tick or 1) + 1)
+                    cyc_blocks = max(1, math.ceil(len(env_tl) / 1000.0 * R_rp / 16))
+                    env_loop = True
+                if ov.get('env_loop'):
+                    # bank v6 env-loop: loop the traced pitch+amp contour of a
+                    # sustained B effect forever (B06 Storm: the thunder voice's
+                    # rolling sweep repeats over the looped sample until stop).
+                    env_loop = True
+                if env_loop:
+                    flags = (flags or 0) | 7      # loop valid + forever + env-loop
+                    count = 0
+                    if not cyc_blocks:
+                        cyc_blocks = (run_total_blocks(runs) if runs
+                                      else (blocks or 0))
                 rec['overridden'] = sorted(ov)
             if brr_off is None:                     # invalid/silent effect
                 records.append((0xFFFF, 0xFFFF, 0, 0, 0, 0, 0, 0))
             else:
-                # record v5: 8 x u16 LE (brr_off, loop_off (0xFFFF=none),
-                # tick, blocks, flags, count, seg_off, seg_count)
+                if loop_off == 0xFFFF and (flags or 0) & 3:
+                    # Loop bits but no loop point cannot loop (e.g. an
+                    # override re-picked a loop-less sample, A21/B16 class):
+                    # downgrade to a natural-end one-shot. (bank v6: keep the
+                    # amp bits -- the amplitude envelope still applies.)
+                    flags = (flags or 0) & 0xFF00
+                    count = 0
+                # ---- bank v6: unified (tick, amp) segmentation ----
+                # Plain loop-forever records keep full amp and no entries (the
+                # gallop extension's shape is in the BRR itself); one-shots get
+                # the traced pitch+amp contour; env-loop records (flags bit2)
+                # get one CYCLE of the contour, which the player restarts
+                # forever. flags[15:8] = segment-0 amp; each entry carries the
+                # NEXT segment's tick and amp.
+                amp0 = 0xFF
+                if 'error' not in rec and not ov.get('noseg') and env_tl and \
+                        (((flags or 0) & 3) in (0, 1) or env_loop):
+                    total = (cyc_blocks if env_loop else
+                             count if (flags or 0) == 1 else (blocks or 0))
+                    if total:
+                        step = amp_step
+                        segs, tick0, amp0 = build_segments_v6(
+                            runs, env_tl, total, tick or 1, step)
+                        # per-effect cap: 341 entries = the smem/burst budget
+                        while len(segs) > 341 and step < 64:
+                            step *= 2
+                            segs, tick0, amp0 = build_segments_v6(
+                                runs, env_tl, total, tick or 1, step)
+                        if segs:
+                            tick = tick0          # record tick = segment-0 tick
+                            rec['amp_step'] = step
+                if not segs:
+                    amp0 = 0xFF
+                    env_loop = False          # no segments -> nothing to loop
+                flags = (flags or 0) | (amp0 << 8)
+                entries = [(segs[i][0], segs[i + 1][1], segs[i + 1][2])
+                           for i in range(len(segs) - 1)] if segs else []
+                if env_loop and segs:
+                    # wrap entry: the final segment gets a finite length and
+                    # its next tick/amp point back to segment 0, so the
+                    # player's normal "apply next segment" step reloads the
+                    # cycle start and re-arms entry 0 (flags bit2).
+                    entries.append((segs[-1][0], segs[0][1], segs[0][2]))
+                    rec['env_loop'] = True
+                # record v6: 8 x u16 LE (brr_off, loop_off (0xFFFF=none),
+                # tick, blocks, flags (bit0 loop, bit1 forever, 15:8 amp0),
+                # count, seg_off, seg_count)
                 records.append((brr_off,
                                 loop_off if loop_off is not None else 0xFFFF,
                                 tick or 0, blocks or 0, flags or 0, count or 0,
                                 0, len(entries)))
             seg_entries.append(entries)
+            rec['segments'] = segs
             rec['seg_count'] = len(entries)
             rec['record'] = len(records) - 1
             manifest[key] = rec
-    return records, manifest, seg_entries
+    return records, manifest, seg_entries, bytes(extension)
 
 # ---------------------------------------------------------------------------
 # reference decode: the exact sample sequence the FPGA player must emit
 # ---------------------------------------------------------------------------
 
-def decode_stream(region, smp, flags, count):
-    """bsnes/ares-exact decode (build_bank.dec_sample) of one effect's stream.
-    History starts at zero and CARRIES across the loop jump (real DSP does not
-    reset it). `count` is in BLOCKS (record v4). Loop-forever effects: first
-    pass + one loop pass. One-shots: until the end flag, or `count` blocks
-    for looped samples played once."""
+def decode_stream(region, brr_off, blocks, flags, count, rec_loop_off, segs):
+    """bsnes/ares-exact decode (build_bank.dec_sample) of one effect's stream,
+    with bank v6 per-block amplitude applied: out = (d * amp) >> 8 (the >> is
+    arithmetic on negatives, matching the player's signed >>>). History
+    starts at zero and CARRIES across the loop jump (real DSP does not reset
+    it). The loop point is the RECORD's loop_off (forced full-track loops
+    point at the sample start, constructed extensions at themselves), NOT
+    necessarily the sample's natural loop -- the player never parses BRR
+    end/loop flags, it re-streams segments purely from the record, so every
+    terminal block jumps when the record says loop. `count` is in BLOCKS
+    (record v5/v6). Loop-forever effects: first pass + one loop pass.
+    One-shots: until the end flag, or `count` blocks for looped samples
+    played once.
+
+    `segs` is the full per-segment [(blocks16, tick, amp)] list ([] = amp is
+    the constant flags[15:8]). The amp changes on block boundaries exactly as
+    the player latches seg_namp when a segment's last block completes.
+    flags bit2 (env-loop): the envelope RESTARTS after its last segment; the
+    reference plays enough loop passes to cross one restart (+64 blocks)."""
     out = []
     looped_forever = bool(flags & 2)
-    has_loop = bool(flags & 1) and smp['loop_off'] is not None
+    env_loop = bool(flags & 4) and bool(segs)
+    has_loop = bool(flags & 1) and rec_loop_off != 0xFFFF
+    end_off = brr_off + blocks * 9
     limit = None
     if has_loop and not looped_forever:
         limit = count * 16                          # count is in blocks
     elif has_loop and looped_forever:
-        first = (smp['end'] - smp['start']) // 9          # blocks in first pass
-        loop_blocks = (smp['end'] - smp['loop']) // 9
-        limit = (first + loop_blocks) * 16
+        first = (end_off - brr_off) // 9            # blocks in first pass
+        loop_blocks = (end_off - rec_loop_off) // 9
+        if env_loop:
+            # cross one full envelope restart so the ref proves the re-arm
+            need = sum(b16 for b16, _t, _a in segs) + 64
+            nblk = first
+            while nblk < need:
+                nblk += loop_blocks
+            limit = nblk * 16
+        else:
+            limit = (first + loop_blocks) * 16
+    amp = (flags >> 8) & 0xFF
+    seg_bounds, cum = [], 0
+    for b16, _t, _a in segs:
+        cum += b16
+        seg_bounds.append(cum)
+    cycle = seg_bounds[-1] if seg_bounds else 0
+    si = 0
     p1 = p2 = 0
-    pos = smp['brr_off']
+    pos = brr_off
     region_n = len(region)
+    bi = 0
     while limit is None or len(out) < limit:
+        if pos >= end_off:
+            # past the last block: wrap by byte length, exactly like the
+            # player's writer (which never parses BRR headers). Constructed
+            # extension regions (gallop cycle) have no end flag at all.
+            if has_loop:
+                pos = rec_loop_off
+            else:
+                return out
         if pos + 9 > region_n:
             raise RuntimeError("BRR walk left the region")
         h = region[pos]
         shift = h >> 4; filt = (h >> 2) & 3; fl = h & 3
+        if segs:
+            bb = bi % cycle if env_loop else bi     # envelope restarts
+            if env_loop:
+                si = 0
+            while si < len(segs) - 1 and bb >= seg_bounds[si]:
+                si += 1
+            amp = segs[si][2]
         for i in range(8):
             b = region[pos + 1 + i]
             for nib in (b >> 4, b & 0xF):
                 d = dec_sample(nib, shift, filt, p1, p2)
-                out.append(d)
+                out.append((d * amp) >> 8)
                 p2 = p1; p1 = d
                 if limit is not None and len(out) >= limit:
                     return out
+        bi += 1
         if fl & 1:
-            if (fl & 2) and has_loop:
-                pos = smp['loop_off']      # predictor history carries over
+            if has_loop:
+                pos = rec_loop_off         # predictor history carries over
             else:
                 return out
         else:
@@ -588,22 +781,26 @@ def decode_stream(region, smp, flags, count):
 # ---------------------------------------------------------------------------
 
 def emit(records, manifest, region, seg_entries, outdir):
-    """Assemble the v5 bank: header, 73 x 16B records (8 x u16), verbatim BRR
-    region, then the pitch-envelope segment region (u16 blocks16 + u16
-    next_tick per entry). Record seg_off is an ENTRY index into the region."""
+    """Assemble the v6 bank: header, 73 x 16B records (8 x u16), BRR region
+    (verbatim ROM + constructed extension), then the envelope segment region
+    (u16 blocks16 + u16 next_tick + u16 next_amp per entry). Record seg_off
+    is an ENTRY index into the region."""
     os.makedirs(outdir, exist_ok=True)
     seg_region = BRR_OFF + len(region)       # segment region right after BRR
     total_entries = sum(len(e) for e in seg_entries)
-    assert total_entries * 4 + seg_region <= 0x10000, "bank exceeds u16 offsets"
+    assert total_entries * 6 + seg_region <= 0x10000, "bank exceeds u16 offsets"
     bank = bytearray()
-    bank += b'SFXB' + struct.pack('<HHIII', 5, len(records),
+    bank += b'SFXB' + struct.pack('<HHIII', 6, len(records),
                                   TABLE_OFF, BRR_OFF, seg_region)
     bank += b'\x00' * (TABLE_OFF - len(bank))
     entry_pos = 0
     for i, rec in enumerate(records):
         brr_off, loop_off, tick, blocks, flags, count = rec[:6]
         assert len(seg_entries[i]) == rec[7]
+        # 3 words/entry, 1024-word smem, 2046-byte writer burst (11 bits)
+        assert rec[7] <= 341, f"effect {i}: too many segment entries"
         assert 0 <= brr_off <= 0xFFFF and 0 <= loop_off <= 0xFFFF
+        assert 0 <= (flags >> 8) & 0xFF <= 255
         bank += struct.pack('<HHHHHHHH', brr_off, loop_off, tick, blocks,
                             flags, count, entry_pos, rec[7])
         entry_pos += rec[7]
@@ -611,26 +808,30 @@ def emit(records, manifest, region, seg_entries, outdir):
     bank += region
     bank += b'\x00' * (seg_region - len(bank))
     for entries in seg_entries:
-        for blocks16, next_tick in entries:
+        for blocks16, next_tick, next_amp in entries:
             assert 1 <= blocks16 <= 0xFFFF and 1 <= next_tick <= 0xFFFF
-            bank += struct.pack('<HH', blocks16, next_tick)
+            assert 0 <= next_amp <= 255
+            bank += struct.pack('<HHH', blocks16, next_tick, next_amp)
     open(os.path.join(outdir, 'sgb_sfx_bank.bin'), 'wb').write(bytes(bank))
 
     # VH documentation header
-    vh = (f"// Auto-generated by extract_apu.py -- ROM-native SGB SFX bank (v5).\n"
-          f"// APU sound image: sample directory + verbatim BRR from SGB1.sfc,\n"
-          f"// plus per-effect pitch-envelope segments (bank v5).\n"
+    vh = (f"// Auto-generated by extract_apu.py -- ROM-native SGB SFX bank (v6).\n"
+          f"// APU sound image: sample directory + verbatim BRR from SGB1.sfc\n"
+          f"// (+ constructed extension blocks), plus per-effect tick+amp\n"
+          f"// envelope segments (bank v6).\n"
           f"// Layout: header@0x000, table@{TABLE_OFF:#x} (73 x 16B LE records:\n"
           f"//   u16 brr_off, u16 loop_off (0xFFFF=none), u16 tick (segment-0\n"
           f"//   tick), u16 blocks (first-pass blocks incl. terminal), u16 flags\n"
-          f"//   (bit0 loop-region valid, bit1 loop-forever), u16 count\n"
-          f"//   (total BLOCKS to emit; 0 = natural end / loop-forever),\n"
-          f"//   u16 seg_off (entry index into the segment region),\n"
-          f"//   u16 seg_count (envelope entries; 0 = fixed pitch)),\n"
+          f"//   (bit0 loop-region valid, bit1 loop-forever, bits 15:8 initial\n"
+          f"//   amplitude 0..255), u16 count (total BLOCKS to emit; 0 = natural\n"
+          f"//   end / loop-forever), u16 seg_off (entry index into the segment\n"
+          f"//   region), u16 seg_count (envelope entries; 0 = constant seg-0)),\n"
           f"//   BRR region@{BRR_OFF:#x} (record offsets are into the region),\n"
           f"//   segment region@{seg_region:#x}: seg_count x (u16 blocks16 of the\n"
-          f"//   current segment, u16 tick of the NEXT segment); the final\n"
-          f"//   segment has no entry and holds its tick to the effect's end.\n"
+          f"//   current segment, u16 tick of the NEXT segment, u16 amp of the\n"
+          f"//   NEXT segment 0..255); the final segment has no entry and holds\n"
+          f"//   its tick/amp to the effect's end. The player scales every output\n"
+          f"//   sample: hPcm = (brr_pcm * amp) >>> 8.\n"
           f"`define SGB_SFX_COUNT {len(records)}\n"
           f"`define SGB_SFX_TABLE_OFF {TABLE_OFF}\n"
           f"`define SGB_SFX_BRR_OFF {BRR_OFF}\n"
@@ -657,16 +858,17 @@ def emit(records, manifest, region, seg_entries, outdir):
             f.write("%04x\n" % (bank[i] | (bank[i+1] << 8)))
     return bytes(bank)
 
-def emit_refs(records, manifest, region, samples, outdir):
-    """Per-effect reference decodes for bit-exact RTL comparison."""
+def emit_refs(records, manifest, region, outdir):
+    """Per-effect reference decodes for bit-exact RTL comparison (bank v6:
+    include the per-block amplitude scaling the player applies)."""
     refs = {}
     for key in sorted(manifest, key=lambda k: manifest[k]['record']):
         m = manifest[key]
         rec = records[m['record']]
         if rec[0] == 0xFFFF or m.get('error'):
             continue
-        smp = samples[m['srcn']]
-        s = decode_stream(region, smp, rec[4], rec[5])
+        s = decode_stream(region, rec[0], rec[3], rec[4], rec[5], rec[1],
+                          m.get('segments') or [])
         with open(os.path.join(outdir, f"ref_{key}.hex"), 'w') as f:
             for x in s:
                 f.write("%04x\n" % (x & 0xFFFF))
@@ -712,33 +914,45 @@ def norm_corr(a, b, max_lag):
     return best
 
 def synth_envelope(ref, segs):
-    """Time-domain reconstruction of the player's output: resample each
-    segment's slice of the reference stream at that segment's rate and
-    concatenate (32 kHz). For single-pitch effects this equals the plain
-    fixed-rate resample."""
+    """Time-domain reconstruction of the player's output: walk the reference
+    stream segment by segment, emitting at each segment's rate with the
+    resample PHASE CARRIED across boundaries (the player's emission is
+    continuous; restarting the phase per segment would drift ~1/ratio
+    samples per boundary and decorrelate the metric). The ref already
+    carries the bank v6 amplitude scaling (applied in decode_stream)."""
     out = []
     pos = 0
-    for blocks16, tick in segs:
+    p = 0.0                       # absolute source position, continuous phase
+    ref = [float(x) for x in ref]
+    for blocks16, tick, _amp in segs:
         n = min(blocks16 * 16, len(ref) - pos)
         if n <= 0:
             break
-        R = HCLK / (tick + 1)
-        out += resample_lin([float(x) for x in ref[pos:pos + n]], R, DSP_RATE)
-        pos += n
+        ratio = (HCLK / (tick + 1)) / DSP_RATE
+        end = pos + n
+        while int(p) < end - 1:
+            i = int(p); f = p - i
+            out.append(ref[i] * (1 - f) + ref[i + 1] * f)
+            p += ratio
+        pos = end
     # tail (if the ref is longer than the envelope span)
-    if pos < len(ref):
-        R = HCLK / (segs[-1][1] + 1)
-        out += resample_lin([float(x) for x in ref[pos:]], R, DSP_RATE)
+    if int(p) < len(ref) - 1:
+        ratio = (HCLK / (segs[-1][1] + 1)) / DSP_RATE
+        while int(p) < len(ref) - 1:
+            i = int(p); f = p - i
+            out.append(ref[i] * (1 - f) + ref[i + 1] * f)
+            p += ratio
     return out
 
-def check_against_wav(records, manifest, region, samples, wavdir):
+def check_against_wav(records, manifest, region, wavdir):
     """The rendered WAV is the DSP's Gaussian output at 32 kHz; the reference
-    decode is the raw BRR sample stream at the effect rate. Resample both to
-    4 kHz and report the best-lag normalized correlation. `fixed` uses one
-    rate for the whole effect (the v4 behavior); `env` reconstructs the v5
-    per-segment timing -- for pitch-modulated effects env is the meaningful
-    number. Single-sample, non-sweep effects should be ~1.0; multi-voice
-    effects legitimately score lower (logged, not failed)."""
+    decode is the raw BRR sample stream at the effect rate (bank v6: with the
+    traced amplitude envelope applied, so the shapes now match). Resample
+    both to 4 kHz and report the best-lag normalized correlation. `fixed`
+    uses one rate for the whole effect (the v4 behavior); `env` reconstructs
+    the per-segment timing -- for pitch-modulated effects env is the
+    meaningful number. Single-sample, non-sweep effects should be ~1.0;
+    multi-voice effects legitimately score lower (logged, not failed)."""
     import wave as wavemod
     print(f"\n{'fx':<5} {'fixed':>6} {'env':>6}  {'len':>6}  note")
     results = {}
@@ -753,8 +967,8 @@ def check_against_wav(records, manifest, region, samples, wavdir):
                 path = os.path.join(wavdir, fn); break
         if path is None:
             print(f"{key:<5}   --   no rendered WAV"); continue
-        smp = samples[m['srcn']]
-        ref = decode_stream(region, smp, rec[4], rec[5])
+        ref = decode_stream(region, rec[0], rec[3], rec[4], rec[5], rec[1],
+                            m.get('segments') or [])
         w = wavemod.open(path)
         nfr = w.getnframes(); ch = w.getnchannels()
         raw = struct.unpack('<%dh' % (nfr * ch), w.readframes(nfr))
@@ -833,24 +1047,41 @@ def main():
         json.dump(slim, open(tpath, 'w'), indent=1)
         print(f"trace saved to {tpath}")
 
-    records, manifest, seg_entries = classify(trace, samples, overrides)
-    bank = emit(records, manifest, region, seg_entries, a.out)
-    refs = emit_refs(records, manifest, region, samples, a.out)
+    # bank v6: auto-coarsen the amplitude quantization until the segment
+    # region fits the u16-offset bank ceiling
+    amp_step = 2
+    while True:
+        records, manifest, seg_entries, extension = classify(
+            trace, samples, overrides, region, amp_step)
+        region_full = region + extension
+        seg_region = BRR_OFF + len(region_full)
+        total_entries = sum(len(e) for e in seg_entries)
+        need = total_entries * 6 + seg_region
+        if need <= 0x10000 or amp_step >= 64:
+            break
+        print(f"segment region over budget ({need} > 0x10000 at amp_step="
+              f"{amp_step}); coarsening to {amp_step * 2}")
+        amp_step *= 2
+    print(f"amp_step={amp_step}: {total_entries} entries, "
+          f"{len(extension)} extension bytes")
+    bank = emit(records, manifest, region_full, seg_entries, a.out)
+    refs = emit_refs(records, manifest, region_full, a.out)
     n_ok = sum(1 for r in records if r[0] != 0xFFFF)
     n_loop = sum(1 for r in records if r[4] & 2)
+    n_amp = sum(1 for r in records if (r[4] >> 8) != 0xFF)
     n_env = sum(1 for r in records if r[7] > 0)
     n_seg = sum(len(e) for e in seg_entries)
-    seg_region = BRR_OFF + len(region)
-    print(f"\nbank: {len(bank)} bytes ({len(bank)/1024:.1f} KB) | "
+    print(f"\nbank v6: {len(bank)} bytes ({len(bank)/1024:.1f} KB) | "
           f"{n_ok}/{len(records)} effects mapped | {n_loop} loop-forever | "
-          f"{n_env} envelope effects / {n_seg} segments | "
-          f"BRR @{BRR_OFF:#x}, segments @{seg_region:#x}")
+          f"{n_env} segmented / {n_seg} entries | {n_amp} amp-shaped | "
+          f"BRR @{BRR_OFF:#x} (+{len(extension)} ext), "
+          f"segments @{seg_region:#x}")
     errs = {k: m['error'] for k, m in manifest.items() if m.get('error')}
     if errs:
         print("UNMAPPED:")
         for k, e in sorted(errs.items()):
             print(f"  {k}: {e}")
-    check_against_wav(records, manifest, region, samples, a.wav)
+    check_against_wav(records, manifest, region_full, a.wav)
 
 if __name__ == '__main__':
     main()

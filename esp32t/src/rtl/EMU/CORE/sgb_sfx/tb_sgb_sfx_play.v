@@ -9,21 +9,25 @@
 // comparison stays bit-exact while the sim runs ~1000x faster than real-time
 // rates (and the envelope sequencer still steps its real boundaries).
 //
-// Per effect (record v5, see sgb_sfx_play.v header):
+// Per effect (record v6, see sgb_sfx_play.v header):
+//   flags bit2 (env-loop, bank v6.1): capture the ref length (one envelope
+//     cycle + 64 blocks of loop passes -- spans the wrap-entry re-arm), then
+//     hStop; the expected length comes from the ref file's line count.
 //   flags bit1 (loop forever): capture first pass + one loop pass (= the ref
 //     stream length), then hStop; verify stop halts output promptly.
 //   flags bit0 only (count-limited one-shot): run to natural end; expect
 //     count*16 samples == ref length.
 //   flags == 0 (plain one-shot): run to natural end; expect blocks*16.
-// Every capture is compared SAMPLE-EXACTLY against ref_XXX.hex. Any byte
-// alignment, pad-skip, loop-jump, predictor-history or decode bug breaks
+// Every capture is compared SAMPLE-EXACTLY against ref_XXX.hex (which include
+// the bank v6 amplitude scaling the player applies). Any byte alignment,
+// pad-skip, loop-jump, predictor-history, amp-scaling or decode bug breaks
 // this. Envelope timing itself is covered by tb_sgb_sfx_env.v at real ticks.
 `timescale 1ns/1ps
 module tb_sgb_sfx_play;
 
     localparam [22:0] BANK_BASE = 23'h100000;
-    localparam BANK_WORDS = 23788;        // 47576 bytes / 2 (bank v5)
-    localparam SEG_WBASE  = 21664;        // segment region word base (0xA940/2)
+    localparam BANK_WORDS = 31867;        // 63734 bytes / 2 (bank v6.1)
+    localparam SEG_WBASE  = 25768;        // segment region word base (0xC950/2)
     localparam MAXS       = 320000;       // biggest effect = A2D 19553*16 = 312848
 
     reg xClk = 0, hClk = 0;
@@ -62,13 +66,15 @@ module tb_sgb_sfx_play;
     integer w;
     initial begin
         $readmemh("sgb_sfx/build/sim_bank.hex", psram);
-        // sim-speed patch: tick (record word 2 in v5) -> 3 for every effect,
-        // and every segment entry's next-tick word -> 3. This only changes
-        // the emit pacing; sample values are untouched, so the bit-exact
-        // comparison against ref_XXX.hex remains valid (the envelope
-        // sequencer still steps its real block boundaries).
+        // sim-speed patch: tick (record word 2) -> 3 for every effect, and
+        // every segment entry's next-tick word -> 3 (bank v6: entries are
+        // 3 words = blocks16, next_tick, next_amp; the tick is word +1).
+        // This only changes the emit pacing; sample values are untouched, so
+        // the bit-exact comparison against ref_XXX.hex remains valid (the
+        // envelope sequencer still steps its real block boundaries and the
+        // real amp values still scale the output).
         for (i = 0; i < 73; i = i + 1) psram[128 + i*8 + 2] = 16'd3;
-        for (w = SEG_WBASE + 1; w < BANK_WORDS; w = w + 2) psram[w] = 16'd3;
+        for (w = SEG_WBASE + 1; w < BANK_WORDS; w = w + 3) psram[w] = 16'd3;
     end
 
     function [15:0] rd_word;
@@ -153,12 +159,33 @@ module tb_sgb_sfx_play;
     reg [15:0] r_tick, r_blocks, r_flags, r_count;
     integer    exp_samples;      // expected capture/ref length in samples
 
+    // build "sgb_sfx/build/ref_XXX.hex" for idx into path
+    reg [8*25-1:0] path;
+    function [7:0] hexdig;
+        input [3:0] v;
+        begin
+            hexdig = (v < 4'd10) ? (8'h30 + {4'd0, v}) : (8'h37 + {4'd0, v});
+        end
+    endfunction
+    task build_path;
+        input [6:0] idx;
+        integer num;
+        begin
+            num  = (idx < 7'd48) ? (idx + 1) : (idx - 47);
+            path = {"sgb_sfx/build/ref_",
+                    (idx < 7'd48) ? 8'h41 : 8'h42,     // 'A' / 'B'
+                    hexdig(num[7:4]), hexdig(num[3:0]), ".hex"};
+        end
+    endtask
+
     task load_rec;
         input [6:0] idx;
+        integer fh, n;
+        reg [8*256-1:0] line;
         begin
-            // bank v5: all fields are u16; brr/loop are byte offsets into the
-            // BRR region (record words 0/1), tick=word2, blocks=3, flags=4,
-            // count=5, seg_off=6, seg_cnt=7
+            // bank v6: all fields are u16; brr/loop are byte offsets into the
+            // BRR region (record words 0/1), tick=word2, blocks=3,
+            // flags=4 (15:8 = initial amp), count=5, seg_off=6, seg_cnt=7
             r_brr    = {16'd0, rec_word(idx,0)};
             r_loop   = {16'd0, rec_word(idx,1)};
             r_tick   = rec_word(idx,2);
@@ -166,9 +193,19 @@ module tb_sgb_sfx_play;
             r_flags  = rec_word(idx,4);
             r_count  = rec_word(idx,5);
             // ref stream length (see extract_apu.py::decode_stream):
+            //   env-loop (flags bit2): the ref is loop passes until one full
+            //     envelope cycle + 64 blocks -- not derivable from the record
+            //     alone, so count the ref file's lines
             //   loop-forever: first pass + one loop pass
             //   count one-shot: count blocks; plain one-shot: blocks blocks
-            if (r_flags[1])
+            if (r_flags[2]) begin
+                build_path(idx);
+                n  = 0;
+                fh = $fopen(path, "r");
+                while ($fgets(line, fh) != 0) n = n + 1;
+                $fclose(fh);
+                exp_samples = n;
+            end else if (r_flags[1])
                 exp_samples = (r_blocks + (r_blocks*16'd9 - (r_loop - r_brr))/9) * 16;
             else if (r_flags[0])
                 exp_samples = r_count * 16;
@@ -177,22 +214,10 @@ module tb_sgb_sfx_play;
         end
     endtask
 
-    // build "sgb_sfx/build/ref_XXX.hex" for idx and load it into ref_buf
-    reg [8*25-1:0] path;
-    function [7:0] hexdig;
-        input [3:0] v;
-        begin
-            hexdig = (v < 4'd10) ? (8'h30 + {4'd0, v}) : (8'h37 + {4'd0, v});
-        end
-    endfunction
     task load_ref;
         input [6:0] idx;
-        integer num;
         begin
-            num  = (idx < 7'd48) ? (idx + 1) : (idx - 47);
-            path = {"sgb_sfx/build/ref_",
-                    (idx < 7'd48) ? 8'h41 : 8'h42,     // 'A' / 'B'
-                    hexdig(num[7:4]), hexdig(num[3:0]), ".hex"};
+            build_path(idx);
             $readmemh(path, ref_buf);
         end
     endtask
