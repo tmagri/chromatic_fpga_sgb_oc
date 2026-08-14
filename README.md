@@ -14,12 +14,9 @@ For more information about the official ModRetro Chromatic hardware, please visi
 *   **Easy Setup:** Added the new [Chromatic Installer](https://github.com/tmagri/chromatic_installer) for a streamlined, user-friendly installation process.
 *   **Super Game Boy (SGB) Support:** 
     *   Added SGB Palettes.
-    *   Added Basic SGB SFX, including Pauline's cry in *Donkey Kong '94* and sound effects for *Kirby's Dream Land 2*.
-    *   *Note: Your MCU must be updated to support SGB SFX.*
+    *   Added Basic SGB SFX, including Pauline's cry in *Donkey Kong '94* and sound effects (all 72 sfx) like *Kirby's Dream Land 2*. No SGB Music.
+    *   *Note: Your MCU must be updated to support SGB SFX. Use the installer to flash both, for ease of use*
 *   **Overclocking:** Introduced **2x** and **4x** speed modes. *Note: Overclocking is defined here as reducing game slowdown. It does not do fast-forward or increase the overall speed of the game, as we are limited by the read speed of the cartridge.* 
-
-### 🔄 Changes & Trade-offs
-*   **Audio Filter Simplified:** To free up necessary space for the new SGB sound features, the audio filter has been simplified, resulting in a 12dB loss. 
 
 ### 🛑 Project Status: Feature Freeze (Final)
 The FPGA chip has reached 97% utilisation and is now routing and logic bound. This hardware limitation means adding new features is no longer feasible, and this sgb_sound branch/project is final. It has all the features intended for this expansion.
