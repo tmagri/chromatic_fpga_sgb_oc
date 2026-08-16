@@ -958,14 +958,14 @@ end
 // lcd_on rising: black until a palette lands on the current LCD session.
 reg pal_ready_since_on = 1'b0;
 always @(posedge clk_sys) begin
-    if (reset_ss)
-        pal_ready_since_on <= 1'b0;
-    else if (sgb_lcd_off_edge)
-        pal_ready_since_on <= 1'b0;
-    else if (output_sgb_pal)
-        pal_ready_since_on <= 1'b1;
+	if (reset_ss)
+		pal_ready_since_on <= 1'b0;
+	else if (sgb_lcd_off_edge)
+		pal_ready_since_on <= 1'b0;
+	else if (output_sgb_pal && !boot_rom_enabled) // Enforce wait during Boot ROM
+		pal_ready_since_on <= 1'b1;
 end
-assign sgb_pal_ready = pal_ready_since_on;
+assign sgb_pal_ready = pal_ready_since_on & ~boot_rom_enabled; // Hardware fail-safe
 assign sgb_trn_active = trn_en;
 
 // SGB taps: mirror of the output stage above, but sourced from the main
@@ -1640,7 +1640,7 @@ wire p14 = joy_p54[0];
 wire p15 = joy_p54[1];
 
 reg old_p15, old_p14;
-reg [15:0] pkt_idle_cnt;      // SGB packet idle watchdog: ce ticks since last P14/P15 edge
+reg [21:0] pkt_idle_cnt;      // SGB packet idle watchdog: ce ticks since last P14/P15 edge
 reg [7:0] data;
 reg [3:0] byte_cnt;
 reg [2:0] cnt, packet_cnt;
@@ -1738,31 +1738,70 @@ always @(posedge clk_sys) begin
 			// this, one garbage byte stream could latch mask_en (black screen)
 			// with no recovery short of a clean cancel packet or hard reset.
 			//
-			// Timeout = 65536 ce (~15.6 ms in DMG mode). This MUST exceed the
-			// longest legitimate gap *inside* a packet, which is a VBlank
-			// interrupt landing mid-transfer: SendSGBPacket runs with interrupts
-			// enabled, so the VBlank handler (AutoBgMapTransfer, OAM DMA,
-			// PrepareOAMData, Audio_UpdateMusic, Music_DoLowHealthAlarm, ...)
-			// freezes JOYP for its full duration. Pokemon Red's battle VBlank
-			// with music + the low-HP alarm routinely hits 4000-5000 cycles and
-			// spikes higher; the previous 12-bit/4096-cycle (~977 us) limit was
-			// shorter than that and aborted in-flight PAL_SET/ATTR_BLK packets,
-			// corrupting the SGB palette (white->green backdrop flashes).
-			// 65536 ce still clears well before the ~2 s it takes joypad-polling
-			// garbage to assemble a full packet, and aborting during the ~70 000
-			// cycle Wait7000 inter-packet gap is a no-op (packet_end is already
-			// set and the counters are already cleared by the reset pulse of the
-			// next packet).
+			// Two stages. STAGE 1 disarms a partial packet at 65536 ce
+			// (~15.6 ms in DMG mode). This MUST exceed the longest legitimate
+			// gap *inside* a packet, which is a VBlank interrupt landing
+			// mid-transfer: SendSGBPacket runs with interrupts enabled, so the
+			// VBlank handler (AutoBgMapTransfer, OAM DMA, PrepareOAMData,
+			// Audio_UpdateMusic, Music_DoLowHealthAlarm, ...) freezes JOYP for
+			// its full duration. Pokemon Red's battle VBlank with music + the
+			// low-HP alarm routinely hits 4000-5000 cycles and spikes higher;
+			// the old 12-bit/4096-cycle (~977 us) limit was shorter than that
+			// and aborted in-flight PAL_SET/ATTR_BLK packets, corrupting the
+			// SGB palette (white->green backdrop flashes). Firing during a
+			// multi-packet stream's inter-packet gap (the ~63000-cycle
+			// Wait7000, longer in some games) is harmless: this stage only
+			// touches packet_end/cnt/byte_cnt/byte_done, which the next
+			// packet's reset pulse re-clears.
+			//
+			// STAGE 2 fully re-arms the receiver at ~1 s (counter saturation):
+			// it also clears packet_cnt and the ATTR_* data-set state. Those
+			// are otherwise reset only when a stream completes cleanly, so a
+			// stream interrupted mid-way (a single lost P14/P15 edge is
+			// enough) leaves packet_cnt stuck non-zero forever; the next
+			// packet's byte 0 then fails the `!packet_cnt && !byte_cnt`
+			// command latch and the whole packet is consumed under the stale
+			// command. Pokemon's post-credits title screen loses its PAL_SET
+			// exactly this way and THE END's colors stay on screen.
+			//
+			// The stage-2 timeout MUST sit far above the longest inter-packet
+			// gap of a *live* multi-packet stream: Donkey Kong Land's exceed
+			// 31 ms, and re-arming inside a live gap drops the continuation
+			// packet (the reverted single-stage 17-bit/31 ms attempt did
+			// exactly that and DKL's title went dark again). 1 s is ~30x any
+			// sender wait loop while still healing an abandoned stream long
+			// before that game's next packet arrives (Pokemon sends nothing
+			// between the interrupted intro stream and the title-screen
+			// PAL_SET, a gap of several seconds even when the intro is
+			// button-skipped).
 			if ((old_p15 != p15) | (old_p14 != p14))
 				pkt_idle_cnt <= 0;
-			else if (pkt_idle_cnt != 16'hFFFF)
+			else if (!(&pkt_idle_cnt))
 				pkt_idle_cnt <= pkt_idle_cnt + 1'b1;
 
-			if (&pkt_idle_cnt) begin
+			// Stage 1: disarm a partial packet after ~15.6 ms of silence.
+			// One-shot at the old saturation value; packet_end is sticky, so a
+			// pulse is equivalent to the previous level -- minus the race
+			// where a reset pulse landing on a saturated counter had the
+			// watchdog's packet_end<=1 override the reset pulse's clear.
+			if (pkt_idle_cnt == 22'hFFFF) begin
 				packet_end <= 1'b1;
 				cnt        <= 0;
 				byte_cnt   <= 0;
 				byte_done  <= 1'b0;
+			end
+
+			// Stage 2: full re-arm of an abandoned stream after ~1 s of
+			// silence (counter saturation). See the stage-2 comment above for
+			// why this must stay far above any live inter-packet gap.
+			if (&pkt_idle_cnt) begin
+				packet_end   <= 1'b1;
+				cnt          <= 0;
+				byte_cnt     <= 0;
+				byte_done    <= 1'b0;
+				packet_cnt   <= 0;
+				data_set_len <= 0;
+				data_set_cnt <= 0;
 			end
 		end
 
@@ -2155,7 +2194,14 @@ always @(posedge clk_sys) begin
 		pal_set_busy <= 0;
 		pal_set_wait <= 0;
 		pal_set_cnt <= 0;
+        output_sgb_pal <= 0; //Everdrive SGB rentry fix
+		pal_clear <= 1'b1;
 	end else if (ce) begin
+        // Breaks Pokemon KEP SGB Color so it is commented out (was used to attempt to fix Credits Reset bug)
+        //if (cpu_addr == 16'h0000 && !cpu_m1_n) begin
+		//	output_sgb_pal <= 1'b0;
+		//	pal_clear <= 1'b1;
+		//end
 
 		pal_cancel_mask <= 0;
 		pal_wr <= 0;
@@ -2168,7 +2214,7 @@ always @(posedge clk_sys) begin
 		// pal_set_busy/pal_set_cnt machinery and could strand a transition with
 		// the palette un-copied and the mask un-cleared (black screen that did
 		// not recover). One frame (~16ms) of palette latency is imperceptible.
-		if (pal_set_wait & frame_end) begin
+		if (pal_set_wait & (lcd_vsync | lcd_off)) begin
 			pal_set_wait <= 0;
 			pal_set_busy <= 1'b1;
 			pal_set_cnt <= 0;
@@ -2442,8 +2488,10 @@ reg [1:0]  mask_en_r = 0;
 always @(posedge clk_sys) begin
 	if (ce) begin
 
-		if (lcd_off) begin
+		if (lcd_vsync | lcd_off) begin
 			mask_en_r <= mask_en;
+		end
+		if (lcd_off) begin
 			if (attr_file_ready) begin
 				attr_file <= attr_file_temp;
 			end
@@ -2459,7 +2507,7 @@ always @(posedge clk_sys) begin
 
 		if (~isSGB | ((~output_sgb_pal | tint | isGBC_game) & !mask_en_r) ) begin
 			sgb_lcd_data <= lcd_data_r;
-		end else if (mask_en_r == 2'd2) begin
+		end else if (mask_en_r == 2'd1 || mask_en_r == 2'd2) begin
 			sgb_lcd_data <= 0;
 		end else if (!lcd_data_gb_r || mask_en_r == 2'd3) begin
 			sgb_lcd_data <= palette[0][14:0];
@@ -2485,10 +2533,30 @@ end
 // scanner, where a constant offset is self-consistent.)
 // No channel swap (SGB data is RGB555, matching LCD pipeline).
 // ov_tile_number = (y/8)*20 + (x/8), computed as 16*row + 4*row + col (no DSP).
+//
+// MASK_EN freeze (2'd1) is masked to the background colour here (palette 0,
+// colour 0) rather than left as pass-through or forced to pure black. This
+// core has no frame buffer, so it cannot hold the previous frame the way a
+// real SGB does during freeze. Leaving freeze as pass-through shows whatever
+// live VRAM currently holds, rendered through whatever palette is live -- and
+// the freeze window is precisely when games draw transfer data into VRAM and
+// display it for the TRN capture. Pokemon's LoadSGB sends MaskEnFreezePacket,
+// then draws the SGB border tiles + BG map into VRAM with the LCD ON for
+// CHR_TRN / PCT_TRN / PAL_TRN. After an in-game soft reset (A+B+Start+Select)
+// reset_ss never fires, so the previous session's palette (THE END) is still
+// live and the border grid shows through the freeze as pixelated garbage.
+// Real hardware hides all of it behind the frozen frame; masking to the
+// background colour stands in. A flat background fill is used instead of hard
+// black because a pure-black window mid-boot / mid-transition reads as
+// jarring, whereas the backdrop colour blends with the surrounding screens
+// (and matches the mode-3 / colour-0 treatment below). Explicit black
+// (mode 2) still forces true black. The freeze is always paired with a
+// MASK_EN cancel right after the transfer, so the mask window is bounded by
+// the game itself.
 wire [8:0] ov_tile_number = {lcd_pix_y[7:3], 4'b0000} + {2'b00, lcd_pix_y[7:3], 2'b00} + {4'b0000, lcd_pix_x[7:3]};
 wire [1:0] pal_no_comb = attr_file[ov_tile_number*2 +: 2];
 wire [14:0] _pal_raw = (mask_en_r == 2'd2) ? 15'd0 :
-                       (!lcd_data_gb || mask_en_r == 2'd3) ? palette[0][14:0] :
+                       (mask_en_r == 2'd1 || !lcd_data_gb || mask_en_r == 2'd3) ? palette[0][14:0] :
                        palette[pal_no_comb][lcd_data_gb*15 +: 15];
 assign sgb_pal_out = _pal_raw;
 
