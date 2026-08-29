@@ -2555,9 +2555,35 @@ end
 // the game itself.
 wire [8:0] ov_tile_number = {lcd_pix_y[7:3], 4'b0000} + {2'b00, lcd_pix_y[7:3], 2'b00} + {4'b0000, lcd_pix_x[7:3]};
 wire [1:0] pal_no_comb = attr_file[ov_tile_number*2 +: 2];
+
+// LCD-off freeze for the SGB overlay. The output-stage mux above forces
+// lcd_data_gb to 2'b00 while the game's LCD is disabled, so without this the
+// overlay would repaint the whole screen with palette[0] (the backdrop --
+// usually the lightest colour) every time a game briefly switches the LCD
+// off, e.g. Pokemon's battle-init VRAM loads: the screen flashes white for
+// the off window right between the blacked-out transition and the battle
+// scene. A real SGB freezes the last displayed frame on the SNES side
+// (MiSTer reproduces this by gating the game-area capture on lcd_off), so
+// hold the last live overlay colour and stream that while the LCD is off.
+// Uniform screens (BGP-cleared transitions like the battle fade) freeze
+// perfectly; varied screens get their last pixel's colour for the 1-3 frame
+// window, which reads as a hold rather than a flash. Explicit MASK_EN black
+// still wins; the frozen fill also covers the videoBypass realign window
+// (lcd_off_overwrite) after the LCD is re-enabled, which previously leaked
+// one more backdrop frame there.
+wire lcd_stream_off = ~(lcd_on_int & ~lcd_off_overwrite);
+reg [14:0] sgb_pal_frozen;
 wire [14:0] _pal_raw = (mask_en_r == 2'd2) ? 15'd0 :
+                       lcd_stream_off ? sgb_pal_frozen :
                        (mask_en_r == 2'd1 || !lcd_data_gb || mask_en_r == 2'd3) ? palette[0][14:0] :
                        palette[pal_no_comb][lcd_data_gb*15 +: 15];
+always @(posedge clk_sys) begin
+	if (reset)
+		sgb_pal_frozen <= 15'd0;
+	else if (lcd_clkena && (lcd_on_int & ~lcd_off_overwrite))
+		sgb_pal_frozen <= _pal_raw;
+end
+
 assign sgb_pal_out = _pal_raw;
 
 // Expose the overlay outputs for external application (emu_system_top),
