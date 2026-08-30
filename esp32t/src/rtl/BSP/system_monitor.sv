@@ -110,6 +110,9 @@ module system_monitor(
     reg lowpowerBacklight = 1'b0;
     reg [3:0] lowerpowerOldBL;
     reg request_SystemStatusExtended = 1'b0;
+    // Set by the MCU (cmd 0x7) when the user disabled Power Saving Mode:
+    // low battery no longer forces the backlight to the minimum level
+    reg powerSaveDisabled = 1'b0;
 
     reg [13:0] volt;
     wire       bat_is_LI;
@@ -158,6 +161,9 @@ module system_monitor(
                         blockBrightnessReceive <= blockBrightnessReceive - 1;
                     end
                 end
+                if(rx_address == 7'd7) begin // Power Saving Mode control
+                    powerSaveDisabled <= rx_data[0];
+                end
                 if(rx_address == 7'd4) begin
                     system_control  <=  rx_data[15:0];
                 end
@@ -187,23 +193,25 @@ module system_monitor(
                 end
             end
 
-            if (lowpowerBacklight) begin
+            if (lowpowerBacklight && ~powerSaveDisabled) begin
                brightness       <= 4'd0;
                updateBrightness <= 1'b0;
             end
 
             if (volt >= 700) begin // ~1.8V
-               if (~lowpowerBacklight && ~bat_is_LI && volt < 979) begin // below 2.55 V
-                  request_SystemStatusExtended <= 1'b1;
-                  lowpowerBacklight            <= 1'b1;
-                  lowerpowerOldBL              <= brightness;
-               end
+                // Do not enter the forced low power backlight when power saving is disabled
+                if (~lowpowerBacklight && ~bat_is_LI && ~powerSaveDisabled && volt < 979) begin // below 2.55 V
+                   request_SystemStatusExtended <= 1'b1;
+                   lowpowerBacklight            <= 1'b1;
+                   lowerpowerOldBL              <= brightness;
+                end
 
-               if (lowpowerBacklight && ~bat_is_LI && volt > 1293) begin // above 3.4 V
-                  request_SystemStatusExtended <= 1'b1;
-                  lowpowerBacklight            <= 1'b0;
-                  brightness                   <= lowerpowerOldBL;
-               end
+                // Leave on recovery, or immediately when power saving gets disabled
+                if (lowpowerBacklight && ~bat_is_LI && ((volt > 1293) || powerSaveDisabled)) begin // above 3.4 V
+                   request_SystemStatusExtended <= 1'b1;
+                   lowpowerBacklight            <= 1'b0;
+                   brightness                   <= lowerpowerOldBL;
+                end
             end
 
             if (write_done && tx_channel == 9 && request_gpd) begin
@@ -410,7 +418,7 @@ module system_monitor(
     reg [13:0] version = {
         1'd0,  // 1 bit reserved
         1'd1,  // 1 bit debug,
-        6'd0,  // 6 bits minor version
+        6'd1,  // 6 bits minor version
         6'd0   // 6 bits major version
     };
 
