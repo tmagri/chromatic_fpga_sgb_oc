@@ -12,6 +12,9 @@ module ST7785_init #(parameter ISSIMU=0)
     parameter CLK_DIV_2N = 6;
 
     wire clk_out_ne;
+
+    wire sck;
+
     clock_div #(
         .DIV_2N(CLK_DIV_2N)) 
     c1 (
@@ -22,7 +25,25 @@ module ST7785_init #(parameter ISSIMU=0)
     );
     
     reg       cs;
-    assign LCD_SCK = ~cs ? sck : 1'd0;
+
+///////////////////////////////////////////////////////////////////////// 
+// delay LCD_SCK by 3 clock cycles so that the the first rising 
+// edge follows deassertion of chip-select by ~60ns
+    reg sck_q;
+    reg sck_qq;
+    reg sck_qqq;
+    always @(posedge clk) begin 
+        sck_q   <= ~cs ? sck : 1'd0;
+        sck_qq  <= sck_q;
+        sck_qqq <= sck_qq;    
+    end
+
+    // ensure that the LCD_SCK serial clock signal is held low
+    // after the last bit is sent
+    assign LCD_SCK = sck_qqq & (bit_cnt != 0);
+
+// assign LCD_SCK = ~cs ? sck : 1'd0; // previous assignment
+///////////////////////////////////////////////////////////////////////////
 
     // AREA 2026-08: trimmed 128 -> 98 entries. The last real init command is
     // entry 93 of regs.bin; entries 94-127 were all 0x00 (ST7785 NOP) bytes
@@ -124,6 +145,7 @@ module ST7785_init #(parameter ISSIMU=0)
                     else
                     begin
                         cs <= 1'd1;
+                        LCD_SDA_SDI <= 1'b0;   // fold data low at end of transaction
                     end
                 end
         end

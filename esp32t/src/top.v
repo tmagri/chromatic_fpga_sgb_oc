@@ -439,7 +439,12 @@ module top #(parameter ISSIMU=0)
 
     wire [8:0] MCU_buttons;
 
-    wire BTN_MENU_ored = BTN_MENU & ~MCU_buttons[8]; // BTN_MENU is low active
+    // debounce the menu button like every other button below (BTN_MENU is
+    // low active, so invert to active-high for the debouncer and back)
+    wire nBTN_MENU = ~BTN_MENU;
+    wire nBTN_MENU_filtered;
+    button_debouncer debouncer_MENU(gClk, nBTN_MENU, nBTN_MENU_filtered);
+    wire BTN_MENU_ored = ~nBTN_MENU_filtered & ~MCU_buttons[8]; // BTN_MENU is low active
 
 
     wire BTN_A_filtered;
